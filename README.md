@@ -1,6 +1,7 @@
 # 🧹 BigQuery Cleaner
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://badge.fury.io/py/bigquery-cleaner.svg)](https://badge.fury.io/py/bigquery-cleaner)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -13,8 +14,11 @@
 Get up and running in seconds:
 
 ```bash
-# 1. Install via uv
-uv tool install .
+# 1. Install via uv (recommended)
+uv tool install bigquery-cleaner
+
+# Or via pip
+pip install bigquery-cleaner
 
 # 2. Find unused tables (older than 30 days and not queried)
 bigquery-cleaner list-unused-tables --project your-gcp-project --all-datasets --days 30
@@ -49,6 +53,17 @@ bigquery-cleaner list-unused-tables --project your-gcp-project --all-datasets --
 
 ## 🛠️ Installation
 
+### Using uv (Recommended)
+```bash
+uv tool install bigquery-cleaner
+```
+
+### Using pip
+```bash
+pip install bigquery-cleaner
+```
+
+### From Source (Development)
 ```bash
 # Clone the repository
 git clone https://github.com/your-repo/bigquery-cleaner.git
