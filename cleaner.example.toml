@@ -1,0 +1,25 @@
+# Sample configuration for bigquery-cleaner
+# Copy to cleaner.toml and edit values, or pass this file directly with --config
+
+[bigquery_cleaner]
+# GCP project ID (e.g., "my-project")
+project = "YOUR_PROJECT"
+
+# Datasets to inspect; set one or many. Elements can be fully-qualified or rely on project above.
+# datasets = ["your_dataset", "another_ds", "proj.other_dataset"]
+
+# Datasets to skip during analysis.
+# exclude_datasets = ["test_dataset", "legacy_ds"]
+
+# Scan all datasets in the project (alternative to the above).
+# all_datasets = true
+
+# Lookback window in days to consider a table as "unused" (not referenced by queries)
+days = 120
+
+# Suffix used when renaming tables (e.g., table_name -> table_name_renamed_20241225)
+# rename_suffix = "_renamed_20241225"
+# dry_run = false
+
+# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Defaults to INFO.
+# log_level = "INFO"

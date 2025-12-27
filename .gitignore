@@ -1,0 +1,64 @@
+### Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dylib
+*.egg
+*.egg-info/
+.eggs/
+MANIFEST
+
+### Build artifacts
+build/
+dist/
+pip-wheel-metadata/
+
+### Test/coverage
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+### Type checkers / linters
+.mypy_cache/
+.pytype/
+.pyre/
+.ruff_cache/
+
+### Environments
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.*
+.conda/
+
+### Editors/OS
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+### Jupyter
+.ipynb_checkpoints/
+.jupyter/
+
+### Logs
+*.log
+
+### uv
+.uv/
+
+.junie/
+
+.private/
