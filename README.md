@@ -66,7 +66,7 @@ pip install bigquery-cleaner
 ### From Source (Development)
 ```bash
 # Clone the repository
-git clone https://github.com/your-repo/bigquery-cleaner.git
+git clone https://github.com/elvainch/bigquery-cleaner.git
 cd bigquery-cleaner
 
 # Sync dependencies and install the tool
@@ -179,4 +179,8 @@ bigquery-cleaner list-unused-tables --config cleaner.toml
 - **Linting & Quality**: The project uses **Ruff** for fast linting and formatting.
 
 ---
+Check out the project on:
+- **PyPI**: [https://pypi.org/project/bigquery-cleaner/](https://pypi.org/project/bigquery-cleaner/)
+- **GitHub**: [https://github.com/elvainch/bigquery-cleaner](https://github.com/elvainch/bigquery-cleaner)
+
 Developed by Alan Vainsencher.
