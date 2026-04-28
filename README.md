@@ -139,7 +139,7 @@ Tired of typing the same flags? Create a `cleaner.toml` file in your project roo
 # GCP Project ID (defaults to ADC project if omitted)
 project = "your-gcp-project"
 
-# List of datasets to scan (e.g. ["ds1", "project2.ds2"])
+# List of datasets to scan (dataset names only)
 datasets = ["dataset1", "dataset2"]
 
 # List of datasets to ignore

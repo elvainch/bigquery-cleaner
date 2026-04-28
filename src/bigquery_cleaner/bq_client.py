@@ -42,25 +42,24 @@ def get_client(project_id: str | None = None) -> bigquery.Client:
 
 
 def _split_dataset_ref(dataset: str, project_id: str | None) -> tuple[str, str]:
-    """Split a dataset ref into (project, dataset), using fallback project if needed.
+    """Resolve a dataset name into (project, dataset) for the configured project.
 
     Args:
-        dataset: Dataset ID string (e.g., "dataset" or "project.dataset").
-        project_id: Fallback project ID if the dataset string is not project-qualified.
+        dataset: Dataset ID string (dataset name only, without project qualification).
+        project_id: Project ID to pair with the dataset name.
 
     Returns:
         A tuple of (project_id, dataset_id).
 
     Raises:
-        ValueError: If dataset is not qualified and no project_id is provided.
+        ValueError: If the dataset is project-qualified or no project_id is provided.
     """
     if "." in dataset:
-        project_id, dataset_id = dataset.split(".", 1)
-        return project_id, dataset_id
-    if not project_id:
         raise ValueError(
-            "Dataset must be 'project.dataset' or provide project via --project"
+            "Dataset must be an unqualified dataset name. Set the project separately via --project or config."
         )
+    if not project_id:
+        raise ValueError("Project must be provided via --project or config when datasets are specified.")
     return project_id, dataset
 
 
@@ -78,38 +77,22 @@ def list_datasets(project_id: str | None) -> list[str]:
     return [dataset.dataset_id for dataset in client.list_datasets()]  # type: ignore[attr-defined]
 
 
-def list_tables(dataset: str, project_id: str | None) -> list[str]:
-    """Return table IDs for the given dataset (project-qualified or not).
-
-    Args:
-        dataset: Dataset ID string (e.g., "dataset" or "project.dataset").
-        project_id: Fallback project ID if the dataset string is not project-qualified.
-
-    Returns:
-        A list of table IDs in the dataset.
-    """
-    project_id, dataset_id = _split_dataset_ref(dataset, project_id)
-    client = get_client(project_id)
-    # Fetch and return all table IDs from the specified dataset.
-    return [table.table_id for table in client.list_tables(dataset_id)]  # type: ignore[attr-defined]
-
-
 def normalize_datasets(
     client: bigquery.Client,
     datasets: list[str] | None,
     default_project: str,
     exclude_datasets: list[str] | None = None,
 ) -> list[tuple[str, str]]:
-    """Normalize dataset inputs to (project, dataset) project_dataset_pairs.
+    """Normalize dataset inputs to (project, dataset) pairs for one project.
 
     If ``datasets`` is None/empty, list all datasets in the client's project.
-    Filters out any datasets present in ``exclude_datasets``.
+    Filters out any datasets present in ``exclude_dataserts``.
 
     Args:
         client: BigQuery client instance.
-        datasets: Optional list of dataset strings to normalize.
-        default_project: Fallback project ID for non-qualified datasets.
-        exclude_datasets: Optional list of dataset strings to exclude from the result.
+        datasets: Optional list of dataset names to normalize.
+        default_project: Project ID used for all dataset names.
+        exclude_datasets: Optional list of dataset names to exclude from the result.
 
     Returns:
         A list of (project_id, dataset_id) tuples.
@@ -302,28 +285,6 @@ def get_old_modified_tables_for_location(
             ds_tables[table_id] for table_id in sorted(ds_tables.keys())
         ]
     return out
-
-
-def rename_table(
-    client: bigquery.Client,
-    project_id: str,
-    dataset_id: str,
-    table_id: str,
-    new_table_id: str,
-    location: str,
-) -> None:
-    """Rename a BigQuery table using ALTER TABLE ... RENAME TO ...
-
-    Args:
-        client: BigQuery client instance.
-        project_id: GCP project ID.
-        dataset_id: Dataset ID.
-        table_id: Original table name.
-        new_table_id: New table name.
-        location: Dataset location.
-    """
-    sql = f"ALTER TABLE `{project_id}.{dataset_id}.{table_id}` RENAME TO `{new_table_id}`"
-    client.query(sql, location=location).result()
 
 
 def rename_tables(

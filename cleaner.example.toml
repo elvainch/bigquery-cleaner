@@ -5,8 +5,8 @@
 # GCP project ID (e.g., "my-project")
 project = "YOUR_PROJECT"
 
-# Datasets to inspect; set one or many. Elements can be fully-qualified or rely on project above.
-# datasets = ["your_dataset", "another_ds", "proj.other_dataset"]
+# Datasets to inspect; set one or many. Use dataset names only.
+# datasets = ["your_dataset", "another_ds"]
 
 # Datasets to skip during analysis.
 # exclude_datasets = ["test_dataset", "legacy_ds"]

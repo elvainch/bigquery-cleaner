@@ -165,9 +165,9 @@ def datasets(
 
 @app.command()
 def tables(
-    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of datasets (each may be 'project.dataset' or just 'dataset')")] = None,
+    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of dataset names")] = None,
     exclude_datasets: Annotated[str | None, typer.Option("--exclude-datasets", help="Comma-separated list of datasets to exclude")] = None,
-    project: Annotated[str | None, typer.Option("--project", help="Project ID used when datasets are not fully-qualified")] = None,
+    project: Annotated[str | None, typer.Option("--project", help="Project ID used for all dataset names")] = None,
     all_datasets: Annotated[bool, typer.Option("--all-datasets", help="Scan all datasets in the project")] = False,
     config: Annotated[str | None, typer.Option("--config", help="Path to TOML config file")] = None,
     ctx: Annotated[typer.Context, typer.Option(hidden=True)] = None,
@@ -240,9 +240,9 @@ def tables(
 
 @app.command("list-unused-tables")
 def unused_tables(
-    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of datasets (each may be 'project.dataset' or find dataset')")] = None,
+    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of dataset names")] = None,
     exclude_datasets: Annotated[str | None, typer.Option("--exclude-datasets", help="Comma-separated list of datasets to exclude")] = None,
-    project: Annotated[str | None, typer.Option("--project", help="Project ID used when datasets are not fully-qualified")] = None,
+    project: Annotated[str | None, typer.Option("--project", help="Project ID used for all dataset names")] = None,
     days: Annotated[int | None, typer.Option("--days", help="Lookback window in days")] = None,
     all_datasets: Annotated[bool, typer.Option("--all-datasets", help="Scan all datasets in the project")] = False,
     config: Annotated[str | None, typer.Option("--config", help="Path to TOML config file")] = None,
@@ -284,9 +284,9 @@ def unused_tables(
 
 @app.command("rename-old-tables")
 def rename_old_tables_cmd(
-    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of datasets (each may be 'project.dataset' or find dataset')")] = None,
+    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of dataset names")] = None,
     exclude_datasets: Annotated[str | None, typer.Option("--exclude-datasets", help="Comma-separated list of datasets to exclude")] = None,
-    project: Annotated[str | None, typer.Option("--project", help="Project ID used when datasets are not fully-qualified")] = None,
+    project: Annotated[str | None, typer.Option("--project", help="Project ID used for all dataset names")] = None,
     days: Annotated[int | None, typer.Option("--days", help="Lookback window in days")] = None,
     suffix: Annotated[str | None, typer.Option("--suffix", help="Suffix to append to renamed tables")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="If set, only print what would be renamed without executing")] = False,
@@ -345,9 +345,9 @@ def rename_old_tables_cmd(
 
 @app.command("revert-renamed-tables")
 def revert_renamed_tables_cmd(
-    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of datasets (each may be 'project.dataset' or find dataset')")] = None,
+    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of dataset names")] = None,
     exclude_datasets: Annotated[str | None, typer.Option("--exclude-datasets", help="Comma-separated list of datasets to exclude")] = None,
-    project: Annotated[str | None, typer.Option("--project", help="Project ID used when datasets are not fully-qualified")] = None,
+    project: Annotated[str | None, typer.Option("--project", help="Project ID used for all dataset names")] = None,
     suffix: Annotated[str | None, typer.Option("--suffix", help="Suffix to remove from table names")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="If set, only print what would be reverted without executing")] = False,
     all_datasets: Annotated[bool, typer.Option("--all-datasets", help="Scan all datasets in the project")] = False,
@@ -404,9 +404,9 @@ def revert_renamed_tables_cmd(
 
 @app.command("delete-tables")
 def delete_tables_cmd(
-    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of datasets (each may be 'project.dataset' or find dataset')")] = None,
+    datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of dataset names")] = None,
     exclude_datasets: Annotated[str | None, typer.Option("--exclude-datasets", help="Comma-separated list of datasets to exclude")] = None,
-    project: Annotated[str | None, typer.Option("--project", help="Project ID used when datasets are not fully-qualified")] = None,
+    project: Annotated[str | None, typer.Option("--project", help="Project ID used for all dataset names")] = None,
     suffix: Annotated[str | None, typer.Option("--suffix", help="Suffix to filter tables for deletion")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="If set, only print what would be deleted without executing")] = False,
     all_datasets: Annotated[bool, typer.Option("--all-datasets", help="Scan all datasets in the project")] = False,
@@ -468,7 +468,7 @@ def delete_tables_cmd(
 def delete_empty_datasets_cmd(
     datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of datasets to check")] = None,
     exclude_datasets: Annotated[str | None, typer.Option("--exclude-datasets", help="Comma-separated list of datasets to exclude")] = None,
-    project: Annotated[str | None, typer.Option("--project", help="Project ID used when datasets are not fully-qualified")] = None,
+    project: Annotated[str | None, typer.Option("--project", help="Project ID used for all dataset names")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="If set, only print what would be deleted without executing")] = False,
     all_datasets: Annotated[bool, typer.Option("--all-datasets", help="Scan all datasets in the project")] = False,
     config: Annotated[str | None, typer.Option("--config", help="Path to TOML config file")] = None,
