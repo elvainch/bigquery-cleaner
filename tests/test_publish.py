@@ -95,11 +95,21 @@ def test_main_requires_selected_target_token(
     env_file = tmp_path / ".env"
     env_file.write_text("PYPY_TEST_TOKEN=test-token\n", encoding="utf-8")
 
+    def fake_prompt_publish_target() -> str:
+        """Choose the target that is missing its token."""
+        return "pypi"
+
+    def fake_confirm_publish(target: str, files: list[Path]) -> bool:
+        """Confirm publish after validating the prepared inputs."""
+        assert target == "pypi"
+        assert len(files) == 1
+        return True
+
     monkeypatch.setattr(publish, "ENV_FILE", env_file)
     monkeypatch.setattr(publish, "DIST_DIR", dist_dir)
     monkeypatch.setattr(publish, "ensure_tools", lambda: None)
-    monkeypatch.setattr(publish, "prompt_publish_target", lambda: "pypi")
-    monkeypatch.setattr(publish, "confirm_publish", lambda target, files: True)
+    monkeypatch.setattr(publish, "prompt_publish_target", fake_prompt_publish_target)
+    monkeypatch.setattr(publish, "confirm_publish", fake_confirm_publish)
 
     result = publish.main()
 
@@ -125,16 +135,30 @@ def test_main_success_publishes_selected_target(
         encoding="utf-8",
     )
 
+    def fake_ensure_tools() -> None:
+        """Record tool validation."""
+        calls.append("ensure_tools")
+
+    def fake_prompt_publish_target() -> str:
+        """Choose the TestPyPI target."""
+        return "testpypi"
+
+    def fake_confirm_publish(target: str, files: list[Path]) -> bool:
+        """Confirm publish after checking the resolved inputs."""
+        assert target == "testpypi"
+        assert len(files) == 1
+        return True
+
+    def fake_publish_distributions(target: str, token: str, files: list[Path]) -> None:
+        """Record the target, token, and artifact count used for publishing."""
+        calls.append(f"publish:{target}:{token}:{len(files)}")
+
     monkeypatch.setattr(publish, "ENV_FILE", env_file)
     monkeypatch.setattr(publish, "DIST_DIR", dist_dir)
-    monkeypatch.setattr(publish, "ensure_tools", lambda: calls.append("ensure_tools"))
-    monkeypatch.setattr(publish, "prompt_publish_target", lambda: "testpypi")
-    monkeypatch.setattr(publish, "confirm_publish", lambda target, files: True)
-    monkeypatch.setattr(
-        publish,
-        "publish_distributions",
-        lambda target, token, files: calls.append(f"publish:{target}:{token}:{len(files)}"),
-    )
+    monkeypatch.setattr(publish, "ensure_tools", fake_ensure_tools)
+    monkeypatch.setattr(publish, "prompt_publish_target", fake_prompt_publish_target)
+    monkeypatch.setattr(publish, "confirm_publish", fake_confirm_publish)
+    monkeypatch.setattr(publish, "publish_distributions", fake_publish_distributions)
 
     result = publish.main()
 
