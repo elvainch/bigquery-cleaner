@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Publishing helper for bigquery-cleaner.
+"""Publishing helper for bigquery-cleaner.
 
 Responsibilities:
 - Prompt for a publish target (TestPyPI or PyPI).
@@ -150,7 +149,7 @@ def publish_distributions(target: str, token: str, files: list[Path]) -> None:
 
 
 def main() -> int:
-    """Main publishing flow."""
+    """Run the publishing flow."""
     try:
         ensure_tools()
         env_values = load_env_file(ENV_FILE)

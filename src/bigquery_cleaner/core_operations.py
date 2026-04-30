@@ -34,6 +34,7 @@ def get_non_queried_tables(
     Returns:
         Mapping of fully-qualified dataset (``project.dataset``) to a sorted list of unqueried
         table metadata.
+
     """
     client, loc_groups = get_execution_context(cfg)
 
@@ -59,6 +60,7 @@ def get_old_modified_tables(
 
     Returns:
         Mapping: ``project.dataset`` -> [TableMetadata ...]
+
     """
     client, loc_groups = get_execution_context(cfg)
 
@@ -82,6 +84,7 @@ def get_old_tables(
         Mapping of ``project.dataset`` -> [TableMetadata ...] for tables that:
         - were modified more than ``days`` ago
         - have not been referenced in the last ``days``
+
     """
     unqueried_by_dataset = get_non_queried_tables(cfg)
     old_modified_by_dataset = get_old_modified_tables(cfg)
@@ -129,6 +132,7 @@ def rename_unused_tables(
 
     Returns:
         Mapping: ``project.dataset`` -> [(``old_table_id``, ``new_table_id``) ...]
+
     """
     candidates_meta = get_old_tables(cfg)
     # Extract table IDs from the metadata for each dataset.
@@ -189,6 +193,7 @@ def revert_renamed_tables(
 
     Returns:
         Mapping: ``project.dataset`` -> [(``current_table_id``, ``reverted_table_id``) ...]
+
     """
     client, loc_groups = get_execution_context(cfg)
 
@@ -245,6 +250,7 @@ def delete_suffixed_tables(
 
     Returns:
         Mapping: ``project.dataset`` -> [``deleted_table_id`` ...]
+
     """
     client, loc_groups = get_execution_context(cfg)
 
@@ -291,6 +297,7 @@ def delete_empty_datasets(
 
     Returns:
         List of fully-qualified dataset IDs (project.dataset) that were deleted (or would be).
+
     """
     client, loc_groups = get_execution_context(cfg)
     deleted_datasets: list[str] = []

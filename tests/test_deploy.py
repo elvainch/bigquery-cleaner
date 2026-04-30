@@ -1,3 +1,5 @@
+"""Tests for the release deployment helper."""
+
 from __future__ import annotations
 
 import importlib
@@ -9,6 +11,7 @@ DEPLOY_PATH = Path(__file__).resolve().parents[1] / "scripts" / "deploy.py"
 
 
 def load_deploy_module():
+    """Load the deploy script as an importable module."""
     spec = importlib.util.spec_from_file_location("deploy_script", DEPLOY_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError("Failed to load deploy.py")
@@ -18,12 +21,14 @@ def load_deploy_module():
 
 
 def test_bump_version_patch() -> None:
+    """Increment the patch segment when requested."""
     deploy = load_deploy_module()
 
     assert deploy.bump_version("0.1.4", "patch") == "0.1.5"
 
 
 def test_validate_release_state_requires_main_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reject release runs outside the main branch."""
     deploy = load_deploy_module()
 
     monkeypatch.setattr(deploy, "local_branch_name", lambda: "feature/test")
@@ -45,6 +50,7 @@ def test_ensure_synced_with_origin_main_detects_invalid_states(
     relation: str,
     message: str,
 ) -> None:
+    """Reject ahead, behind, or diverged local main states."""
     deploy = load_deploy_module()
 
     monkeypatch.setattr(deploy, "has_origin_remote", lambda: True)
@@ -59,6 +65,7 @@ def test_main_rolls_back_version_files_on_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Restore version files when deployment fails before the release commit."""
     deploy = load_deploy_module()
 
     pyproject = tmp_path / "pyproject.toml"
@@ -90,6 +97,7 @@ def test_main_success_commits_pushes_and_tags_release(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Run the happy path through commit, push, and tag creation."""
     deploy = load_deploy_module()
     calls: list[str] = []
 
@@ -139,6 +147,7 @@ def test_main_does_not_restore_files_after_commit_failure_boundary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Keep bumped versions once the release has crossed the commit boundary."""
     deploy = load_deploy_module()
 
     pyproject = tmp_path / "pyproject.toml"

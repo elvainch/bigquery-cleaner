@@ -21,6 +21,7 @@ from .queries.sql import (
 @dataclass
 class TableMetadata:
     """Detailed information about a BigQuery table."""
+
     table_id: str
     created: datetime | None = None
     modified: datetime | None = None
@@ -37,6 +38,7 @@ def get_client(project_id: str | None = None) -> bigquery.Client:
 
     Returns:
         An authenticated bigquery.Client instance.
+
     """
     return bigquery.Client(project=project_id) if project_id else bigquery.Client()
 
@@ -53,6 +55,7 @@ def _split_dataset_ref(dataset: str, project_id: str | None) -> tuple[str, str]:
 
     Raises:
         ValueError: If the dataset is project-qualified or no project_id is provided.
+
     """
     if "." in dataset:
         raise ValueError(
@@ -71,6 +74,7 @@ def list_datasets(project_id: str | None) -> list[str]:
 
     Returns:
         A list of dataset IDs.
+
     """
     client = get_client(project_id)
     # Fetch and return all dataset IDs from the project.
@@ -96,6 +100,7 @@ def normalize_datasets(
 
     Returns:
         A list of (project_id, dataset_id) tuples.
+
     """
     project_dataset_pairs: list[tuple[str, str]] = []
     if datasets and len(datasets) > 0:
@@ -132,6 +137,7 @@ def group_datasets_by_location(
 
     Returns:
         A dictionary mapping location strings to lists of (project_id, dataset_id) tuples.
+
     """
     groups: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
     for project_id, dataset_id in project_dataset_pairs:
@@ -158,6 +164,7 @@ def get_recent_referenced_tables_by_dataset(
 
     Returns:
         A dictionary mapping dataset ID to a set of table IDs referenced in queries.
+
     """
     region_dataset = f"region-{location.lower()}"
     project = project_dataset_pairs[0][0]
@@ -199,6 +206,7 @@ def get_all_tables_for_location(
 
     Returns:
         A dictionary mapping dataset ID to a dict of table_id -> TableMetadata.
+
     """
     region_dataset = f"region-{location.lower()}"
     project = project_dataset_pairs[0][0]
@@ -244,6 +252,7 @@ def get_old_modified_tables_for_location(
 
     Returns:
         Mapping: ``project.dataset`` -> [TableMetadata ...]
+
     """
     region_dataset = f"region-{location.lower()}"
     project = project_dataset_pairs[0][0]
@@ -298,6 +307,7 @@ def rename_tables(
         client: BigQuery client instance.
         statements: List of SQL statements to execute.
         location: Dataset location.
+
     """
     if not statements:
         return
@@ -316,6 +326,7 @@ def delete_tables(
         client: BigQuery client instance.
         statements: List of SQL statements to execute.
         location: Dataset location.
+
     """
     if not statements:
         return
@@ -333,6 +344,7 @@ def delete_dataset(
         project_id: GCP project ID.
         dataset_id: Dataset ID.
         not_found_ok: If True, do not raise error if dataset doesn't exist.
+
     """
     dataset_ref = bigquery.DatasetReference(project_id, dataset_id)
     client.delete_dataset(dataset_ref, delete_contents=False, not_found_ok=not_found_ok)
@@ -351,6 +363,7 @@ def table_exists(
 
     Returns:
         True if the table exists, False otherwise.
+
     """
     table_ref = bigquery.TableReference(
         bigquery.DatasetReference(project_id, dataset_id), table_id

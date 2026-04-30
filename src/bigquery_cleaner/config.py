@@ -21,6 +21,8 @@ def get_default_suffix() -> str:
 
 @dataclass
 class CleanerConfig:
+    """Store the effective BigQuery Cleaner configuration."""
+
     project: str | None = None
     datasets: list[str] | None = None
     exclude_datasets: list[str] | None = None
@@ -32,6 +34,7 @@ class CleanerConfig:
     log_level: str = "INFO"
 
     def __post_init__(self) -> None:
+        """Populate computed defaults after initialization."""
         if not self.rename_suffix:
             self.rename_suffix = get_default_suffix()
 
@@ -44,6 +47,7 @@ def load_config(path: str | None) -> CleanerConfig:
 
     Returns:
         A CleanerConfig instance populated with values from the file or defaults.
+
     """
     if not path:
         return CleanerConfig()
@@ -78,6 +82,7 @@ def _parse_datasets_csv(val: str | None) -> list[str] | None:
 
     Returns:
         A list of dataset IDs or None if input is empty.
+
     """
     if not val:
         return None
@@ -113,9 +118,13 @@ def resolve_config(
         cli_exclude_datasets_csv: Comma-separated list of datasets to exclude from CLI.
         cli_all_datasets: Flag to scan all datasets from CLI.
         cli_days: Lookback window in days from CLI.
+        cli_rename_suffix: Rename suffix override from CLI.
+        cli_dry_run: Dry-run override from CLI.
+        cli_log_level: Logging level override from CLI.
 
     Returns:
         The resolved CleanerConfig instance.
+
     """
     base = load_config(path)
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Deployment helper for bigquery-cleaner.
+"""Deployment helper for bigquery-cleaner.
 
 Responsibilities:
 - Validate release preconditions on git state.
@@ -337,7 +336,7 @@ def print_build_artifacts() -> None:
 
 
 def main() -> int:
-    """Main deployment flow."""
+    """Run the deployment flow."""
     version_snapshot: dict[Path, str] | None = None
     release_committed = False
     try:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def recent_references_across_datasets_sql(project: str, region_dataset: str) -> str:
-    """SQL to fetch recently referenced tables across many datasets.
+    """Fetch SQL for recently referenced tables across many datasets.
 
     Uses INFORMATION_SCHEMA.JOBS.referenced_tables. Expects parameters:
       - @days (INT64)
@@ -23,7 +23,7 @@ def recent_references_across_datasets_sql(project: str, region_dataset: str) -> 
 
 
 def list_all_tables_across_datasets_sql(project: str, region_dataset: str) -> str:
-    """SQL to list all tables across many datasets in a location.
+    """Fetch SQL for all tables across many datasets in a location.
 
     Uses INFORMATION_SCHEMA.TABLE_STORAGE to get table size.
 
@@ -44,7 +44,7 @@ def list_all_tables_across_datasets_sql(project: str, region_dataset: str) -> st
 
 
 def list_old_tables_across_datasets_sql(project: str, region_dataset: str) -> str:
-    """SQL to list tables across many datasets modified before the lookback window.
+    """Fetch SQL for tables modified before the lookback window.
 
     Uses INFORMATION_SCHEMA.TABLE_STORAGE which is available at the region level.
 

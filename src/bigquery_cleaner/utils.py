@@ -27,6 +27,7 @@ def get_execution_context(
 
     Returns:
         A tuple containing (BigQuery client, location groups).
+
     """
     client = get_client(cfg.project)
     effective_project = client.project
@@ -45,6 +46,7 @@ def get_ds_to_loc_map(
 
     Returns:
         Mapping of (project_id, dataset_id) to its location.
+
     """
     ds_to_loc: dict[tuple[str, str], str] = {}
     for location, project_dataset_pairs in loc_groups.items():
@@ -66,6 +68,7 @@ def compute_unqueried_for_location(
 
     Returns:
         Mapping of ``project.dataset`` -> [TableMetadata ...]
+
     """
     recent_by_ds = get_recent_referenced_tables_by_dataset(
         client=client,

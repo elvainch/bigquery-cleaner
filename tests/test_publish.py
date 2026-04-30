@@ -1,3 +1,5 @@
+"""Tests for the package publishing helper."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -10,6 +12,7 @@ PUBLISH_PATH = Path(__file__).resolve().parents[1] / "scripts" / "publish.py"
 
 
 def load_publish_module():
+    """Load the publish script as an importable module."""
     spec = importlib.util.spec_from_file_location("publish_script", PUBLISH_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError("Failed to load publish.py")
@@ -19,6 +22,7 @@ def load_publish_module():
 
 
 def test_load_env_file_reads_tokens(tmp_path: Path) -> None:
+    """Read publish tokens from the env file."""
     publish = load_publish_module()
     env_file = tmp_path / ".env"
     env_file.write_text(
@@ -35,6 +39,7 @@ def test_load_env_file_reads_tokens(tmp_path: Path) -> None:
 
 
 def test_list_dist_files_requires_files(tmp_path: Path) -> None:
+    """Fail when the dist directory contains no artifacts."""
     publish = load_publish_module()
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
@@ -44,6 +49,7 @@ def test_list_dist_files_requires_files(tmp_path: Path) -> None:
 
 
 def test_publish_distributions_sets_uv_publish_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pass the selected token to uv publish through the environment."""
     publish = load_publish_module()
     captured: dict[str, object] = {}
 
@@ -78,6 +84,7 @@ def test_main_requires_selected_target_token(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Fail when the chosen publish target is missing its token."""
     publish = load_publish_module()
 
     dist_dir = tmp_path / "dist"
@@ -103,6 +110,7 @@ def test_main_success_publishes_selected_target(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Publish artifacts to the selected target on the happy path."""
     publish = load_publish_module()
     calls: list[str] = []
 

@@ -8,6 +8,7 @@ target-version = "py310"
 # Enable Pyflakes (`F`), pycodestyle (`E`, `W`), isort (`I`), 
 # pep8-naming (`N`), and various other common rules.
 select = [
+    "D"   ,    # pydocstyle
     "F",    # Pyflakes
     "E",    # pycodestyle errors
     "W",    # pycodestyle warnings
@@ -23,6 +24,8 @@ select = [
 # List of rule codes to ignore.
 ignore = [
     "E501", # Line too long (already handled by formatter)
+    "D203", # Incompatible with D211
+    "D213", # Incompatible with D212
 ]
 
 [lint.isort]

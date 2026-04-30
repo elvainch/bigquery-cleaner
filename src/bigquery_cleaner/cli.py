@@ -59,6 +59,7 @@ def _validate_datasets(cfg: CleanerConfig) -> None:
 
     Raises:
         typer.Exit: If neither datasets nor all_datasets is set.
+
     """
     if not cfg.all_datasets and not cfg.datasets:
         console.print(
@@ -73,6 +74,7 @@ def _print_unqueried_results(results: dict[str, list[TableMetadata]]) -> None:
 
     Args:
         results: Dictionary mapping dataset IDs to lists of TableMetadata.
+
     """
     if not results:
         console.print("[yellow]No unused tables found.[/yellow]")
@@ -130,6 +132,8 @@ def ping(
 
     Args:
         project: Optional GCP project ID to use.
+        ctx: Typer context used to read the global log level.
+
     """
     # Extract log_level from parent context (main callback)
     log_level = ctx.parent.params.get("log_level") if ctx.parent else "INFO"
@@ -150,6 +154,8 @@ def datasets(
 
     Args:
         project: Optional GCP project ID to list datasets from.
+        ctx: Typer context used to read the global log level.
+
     """
     # Extract log_level from parent context (main callback)
     log_level = ctx.parent.params.get("log_level") if ctx.parent else "INFO"
@@ -180,6 +186,8 @@ def tables(
         project: GCP project ID.
         all_datasets: Flag to scan all datasets in the project.
         config: Path to TOML config file.
+        ctx: Typer context used to read the global log level.
+
     """
     # Extract log_level from parent context (main callback)
     log_level = ctx.parent.params.get("log_level") if ctx.parent else None
@@ -260,6 +268,8 @@ def unused_tables(
         days: Lookback window in days.
         all_datasets: Flag to scan all datasets in the project.
         config: Path to TOML config file.
+        ctx: Typer context used to read the global log level.
+
     """
     # Extract log_level from parent context (main callback)
     log_level = ctx.parent.params.get("log_level") if ctx.parent else None
@@ -305,6 +315,8 @@ def rename_old_tables_cmd(
         dry_run: If True, do not perform actual renaming.
         all_datasets: Flag to scan all datasets in the project.
         config: Path to TOML config file.
+        ctx: Typer context used to read the global log level.
+
     """
     # Extract log_level from parent context (main callback)
     log_level = ctx.parent.params.get("log_level") if ctx.parent else None
@@ -364,6 +376,8 @@ def revert_renamed_tables_cmd(
         dry_run: If True, do not perform actual renaming.
         all_datasets: Flag to scan all datasets in the project.
         config: Path to TOML config file.
+        ctx: Typer context used to read the global log level.
+
     """
     # Extract log_level from parent context (main callback)
     log_level = ctx.parent.params.get("log_level") if ctx.parent else None
@@ -423,6 +437,8 @@ def delete_tables_cmd(
         dry_run: If True, do not perform actual deletion.
         all_datasets: Flag to scan all datasets in the project.
         config: Path to TOML config file.
+        ctx: Typer context used to read the global log level.
+
     """
     # Extract log_level from parent context (main callback)
     log_level = ctx.parent.params.get("log_level") if ctx.parent else None
@@ -483,6 +499,8 @@ def delete_empty_datasets_cmd(
         dry_run: If True, do not perform actual deletion.
         all_datasets: Flag to scan all datasets in the project.
         config: Path to TOML config file.
+        ctx: Typer context used to read the global log level.
+
     """
     # Extract log_level from parent context (main callback)
     log_level = ctx.parent.params.get("log_level") if ctx.parent else None
