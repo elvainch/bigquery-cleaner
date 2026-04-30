@@ -3,14 +3,14 @@
 Deployment helper for bigquery-cleaner.
 
 Responsibilities:
+- Validate release preconditions on git state.
 - Prompt for version bump (major/minor/patch) and update version in:
   - pyproject.toml [project].version
   - src/bigquery_cleaner/__init__.py __version__
 - Ensure dev dependencies are synced (for pytest).
-- Run tests.
+- Run lint and tests.
 - Build the package with uv.
-
-All heavy lifting is done here; the shell wrapper only invokes this file.
+- Create and push a release tag after a successful build.
 """
 from __future__ import annotations
 
@@ -28,10 +28,14 @@ INIT_FILE = ROOT / "src" / "bigquery_cleaner" / "__init__.py"
 
 class DeployError(RuntimeError):
     """Deployment-related error."""
-    pass
 
 
-def run(cmd: Iterable[str], cwd: Path | None = None) -> None:
+def run(
+    cmd: Iterable[str],
+    cwd: Path | None = None,
+    *,
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess[str]:
     """Run a command, raising DeployError on failure."""
     try:
         proc = subprocess.run(
@@ -39,11 +43,20 @@ def run(cmd: Iterable[str], cwd: Path | None = None) -> None:
             cwd=str(cwd) if cwd else None,
             check=False,
             text=True,
+            capture_output=capture_output,
         )
     except FileNotFoundError as exc:
         raise DeployError(f"Command not found: {cmd[0]}") from exc
     if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip() if capture_output else ""
+        stdout = (proc.stdout or "").strip() if capture_output else ""
+        detail = stderr or stdout
+        if detail:
+            raise DeployError(
+                f"Command failed ({proc.returncode}): {' '.join(cmd)}\n{detail}"
+            )
         raise DeployError(f"Command failed ({proc.returncode}): {' '.join(cmd)}")
+    return proc
 
 
 def ensure_tools() -> None:
@@ -51,6 +64,10 @@ def ensure_tools() -> None:
     if shutil.which("uv") is None:
         raise DeployError(
             "'uv' is required. Install from https://docs.astral.sh/uv/ and ensure it is on PATH."
+        )
+    if shutil.which("git") is None:
+        raise DeployError(
+            "'git' is required. Install Git and ensure it is on PATH."
         )
 
 
@@ -100,12 +117,10 @@ def bump_version(v: str, kind: str) -> str:
 def read_current_version_pyproject(path: Path) -> str:
     """Read current version from pyproject.toml."""
     text = path.read_text(encoding="utf-8")
-    # Find version under [project]
     project_block = re.search(r"(?ms)^\[project\](.*?)(^\[|\Z)", text)
     if not project_block:
         raise DeployError("[project] section not found in pyproject.toml")
     block = project_block.group(1)
-    # Accept versions wrapped in proper quotes or mistakenly escaped quotes (\")
     m = re.search(r"(?m)^\s*version\s*=\s*(?:\\)?([\"'])([^\"']+)\1\s*$", block)
     if not m:
         raise DeployError("project.version not found in pyproject.toml")
@@ -118,7 +133,6 @@ def write_version_pyproject(path: Path, new_version: str) -> None:
 
     def _repl(match: re.Match[str]) -> str:
         head, block, tail = match.group(1), match.group(2), match.group(3)
-        # Replace version line inside the [project] block without introducing escape sequences
         block_new = re.sub(
             r'(?m)^(\s*version\s*=\s*)"[^"]+"(\s*)$',
             lambda m: f'{m.group(1)}"{new_version}"{m.group(2)}',
@@ -143,7 +157,6 @@ def write_version_pyproject(path: Path, new_version: str) -> None:
 def read_current_version_init(path: Path) -> str:
     """Read __version__ from __init__.py."""
     text = path.read_text(encoding="utf-8")
-    # Accept proper or mistakenly escaped quotes
     m = re.search(r"(?m)^\s*__version__\s*=\s*(?:\\)?([\"'])([^\"']+)\1\s*$", text)
     if not m:
         raise DeployError("__version__ not found in __init__.py")
@@ -166,7 +179,6 @@ def write_version_init(path: Path, new_version: str) -> None:
 
 def sync_dev_deps() -> None:
     """Sync dev dependencies via uv."""
-    # Ensure dev tools (pytest/ruff) are available
     run(["uv", "sync", "--group", "dev"])
 
 
@@ -177,7 +189,6 @@ def run_ruff() -> None:
 
 def run_tests() -> None:
     """Run tests with pytest via uv."""
-    # Use pytest per repo convention
     run(["uv", "run", "pytest", "-q"])
 
 
@@ -186,14 +197,145 @@ def build_package() -> None:
     run(["uv", "build"])
 
 
+def git_output(*args: str) -> str:
+    """Run a git command and return trimmed stdout."""
+    proc = run(["git", *args], cwd=ROOT, capture_output=True)
+    return (proc.stdout or "").strip()
+
+
+def local_branch_name() -> str:
+    """Return the current local branch name."""
+    return git_output("branch", "--show-current")
+
+
+def ensure_main_branch() -> None:
+    """Ensure deploy is being run from main."""
+    branch = local_branch_name()
+    if branch != "main":
+        raise DeployError(f"Deploy must be run from 'main', got '{branch or '<detached>'}'.")
+
+
+def ensure_clean_worktree() -> None:
+    """Ensure there are no tracked changes."""
+    status = git_output("status", "--porcelain", "--untracked-files=no")
+    if status:
+        raise DeployError("Working tree has tracked changes. Commit or stash them before deploy.")
+
+
+def has_origin_remote() -> bool:
+    """Return True if the repo has an origin remote."""
+    remotes = git_output("remote")
+    return "origin" in remotes.splitlines()
+
+
+def remote_ref_exists(ref: str) -> bool:
+    """Return True if the given git ref exists locally."""
+    try:
+        git_output("rev-parse", "--verify", "--quiet", ref)
+    except DeployError:
+        return False
+    return True
+
+
+def ensure_synced_with_origin_main() -> None:
+    """Ensure local main is in sync with origin/main when available."""
+    if not has_origin_remote():
+        print("No origin remote configured; skipping origin/main sync check.")
+        return
+
+    if not remote_ref_exists("refs/remotes/origin/main"):
+        print("No local origin/main tracking ref found; skipping origin/main sync check.")
+        return
+
+    relation = git_output("rev-list", "--left-right", "--count", "main...origin/main")
+    try:
+        ahead_count_str, behind_count_str = relation.split()
+    except ValueError as exc:
+        raise DeployError(f"Unexpected git rev-list output: {relation!r}") from exc
+
+    ahead_count = int(ahead_count_str)
+    behind_count = int(behind_count_str)
+    if ahead_count == 0 and behind_count == 0:
+        return
+    if ahead_count > 0 and behind_count > 0:
+        raise DeployError("Local main has diverged from origin/main.")
+    if ahead_count > 0:
+        raise DeployError("Local main is ahead of origin/main.")
+    raise DeployError("Local main is behind origin/main.")
+
+
+def ensure_tag_absent(tag_name: str) -> None:
+    """Ensure the release tag does not already exist locally or remotely."""
+    if remote_ref_exists(f"refs/tags/{tag_name}"):
+        raise DeployError(f"Tag '{tag_name}' already exists locally.")
+
+    if not has_origin_remote():
+        return
+
+    try:
+        git_output("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/{tag_name}")
+    except DeployError as err:
+        msg = str(err)
+        if "Command failed (2)" in msg:
+            return
+        raise
+    raise DeployError(f"Tag '{tag_name}' already exists on origin.")
+
+
+def create_and_push_tag(tag_name: str, version: str) -> None:
+    """Create and push an annotated release tag."""
+    ensure_tag_absent(tag_name)
+    run(["git", "tag", "-a", tag_name, "-m", f"Release {version}"], cwd=ROOT)
+    try:
+        run(["git", "push", "origin", tag_name], cwd=ROOT)
+    except DeployError:
+        if remote_ref_exists(f"refs/tags/{tag_name}"):
+            run(["git", "tag", "-d", tag_name], cwd=ROOT)
+        raise
+
+
+def snapshot_files(paths: Iterable[Path]) -> dict[Path, str]:
+    """Snapshot file contents for later restoration."""
+    return {path: path.read_text(encoding="utf-8") for path in paths}
+
+
+def restore_files(snapshot: dict[Path, str]) -> None:
+    """Restore file contents from a snapshot."""
+    for path, content in snapshot.items():
+        path.write_text(content, encoding="utf-8")
+
+
+def validate_release_state() -> None:
+    """Validate preconditions for a release run."""
+    ensure_main_branch()
+    ensure_clean_worktree()
+    ensure_synced_with_origin_main()
+
+
+def print_build_artifacts() -> None:
+    """Print build artifacts in dist/ if present."""
+    dist = ROOT / "dist"
+    if not dist.exists():
+        return
+    artifacts = sorted(p.name for p in dist.iterdir())
+    if not artifacts:
+        return
+    print("Build artifacts in dist/:")
+    for name in artifacts:
+        print(f" - {name}")
+
+
 def main() -> int:
     """Main deployment flow."""
+    version_snapshot: dict[Path, str] | None = None
     try:
         ensure_tools()
         if not PYPROJECT.exists():
             raise DeployError(f"pyproject.toml not found at {PYPROJECT}")
         if not INIT_FILE.exists():
             raise DeployError(f"__init__.py not found at {INIT_FILE}")
+
+        validate_release_state()
 
         current = read_current_version_pyproject(PYPROJECT)
         init_ver = read_current_version_init(INIT_FILE)
@@ -205,10 +347,14 @@ def main() -> int:
 
         bump_kind = prompt_bump()
         new_version = bump_version(current, bump_kind)
-        # Confirm before writing any files
         if not confirm_bump(current, new_version, bump_kind):
             print("Canceled.")
             return 0
+
+        tag_name = f"v{new_version}"
+        ensure_tag_absent(tag_name)
+
+        version_snapshot = snapshot_files([PYPROJECT, INIT_FILE])
 
         print(f"Bumping version: {current} -> {new_version} ({bump_kind})")
         write_version_pyproject(PYPROJECT, new_version)
@@ -226,17 +372,17 @@ def main() -> int:
         print("Building package with uv...")
         build_package()
 
-        dist = ROOT / "dist"
-        if dist.exists():
-            artifacts = sorted(p.name for p in dist.iterdir())
-            if artifacts:
-                print("Build artifacts in dist/:")
-                for name in artifacts:
-                    print(f" - {name}")
+        print(f"Creating and pushing tag {tag_name}...")
+        create_and_push_tag(tag_name, new_version)
+
+        print_build_artifacts()
         print("Done.")
         return 0
-    except DeployError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+    except DeployError as err:
+        if version_snapshot is not None:
+            restore_files(version_snapshot)
+            print("Restored version files after failed deploy.", file=sys.stderr)
+        print(f"ERROR: {err}", file=sys.stderr)
         return 1
 
 
