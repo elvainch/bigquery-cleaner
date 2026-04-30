@@ -28,7 +28,7 @@ class CleanerConfig:
     exclude_datasets: list[str] | None = None
     all_datasets: bool = False
     location: str | None = None
-    days: int = 120
+    days: int = 30
     rename_suffix: str = ""  # Initialized in __post_init__ or resolve_config
     dry_run: bool = False
     log_level: str = "INFO"
@@ -61,13 +61,15 @@ def load_config(path: str | None) -> CleanerConfig:
         return CleanerConfig()
 
     cfg = data.get("bigquery_cleaner", {}) if isinstance(data, dict) else {}
+    default_days = CleanerConfig().days
+
     return CleanerConfig(
         project=cfg.get("project"),
         datasets=cfg.get("datasets"),
         exclude_datasets=cfg.get("exclude_datasets"),
         all_datasets=bool(cfg.get("all_datasets", False)),
         location=cfg.get("location"),
-        days=int(cfg.get("days", 30)) if cfg.get("days") is not None else 30,
+        days=int(cfg.get("days", default_days)) if cfg.get("days") is not None else default_days,
         rename_suffix=str(cfg.get("rename_suffix", "")),
         dry_run=bool(cfg.get("dry_run", False)),
         log_level=str(cfg.get("log_level", "INFO")),

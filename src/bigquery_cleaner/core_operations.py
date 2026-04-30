@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from google.cloud import bigquery
+
 from .bq_client import (
     TableMetadata,
     delete_dataset,
@@ -302,18 +304,13 @@ def delete_empty_datasets(
     client, loc_groups = get_execution_context(cfg)
     deleted_datasets: list[str] = []
 
-    for location, project_dataset_pairs in loc_groups.items():
-        # fetch_all_tables_for_location returns a dict of dataset_id -> {table_id -> TableMetadata}
-        # It includes views as well because the underlying SQL/API lists them.
-        all_by_ds = get_all_tables_for_location(client, location, project_dataset_pairs)
-
+    for project_dataset_pairs in loc_groups.values():
         for project_id, dataset_id in project_dataset_pairs:
             ds_key = f"{project_id}.{dataset_id}"
+            dataset_ref = bigquery.DatasetReference(project_id, dataset_id)
+            has_objects = next(iter(client.list_tables(dataset_ref, max_results=1)), None) is not None
 
-            # If the dataset is not in all_by_ds or has an empty dict of tables, it's empty
-            tables_dict = all_by_ds.get(dataset_id, {})
-
-            if not tables_dict:
+            if not has_objects:
                 if not cfg.dry_run:
                     delete_dataset(client, project_id, dataset_id)
 
