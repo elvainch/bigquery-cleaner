@@ -7,10 +7,11 @@ Responsibilities:
 - Prompt for version bump (major/minor/patch) and update version in:
   - pyproject.toml [project].version
   - src/bigquery_cleaner/__init__.py __version__
+- Prompt for a release message.
 - Ensure dev dependencies are synced (for pytest).
 - Run lint and tests.
 - Build the package with uv.
-- Create and push a release tag after a successful build.
+- Create the release commit, push main, and create/push the release tag.
 """
 from __future__ import annotations
 
@@ -92,6 +93,15 @@ def confirm_bump(current: str, new_version: str, kind: str) -> bool:
         if ans in {"n", "no", ""}:
             return False
         print("Please answer 'y' or 'n'.")
+
+
+def prompt_release_message() -> str:
+    """Prompt for the release commit message suffix."""
+    while True:
+        message = input("Release message: ").strip()
+        if message:
+            return message
+        print("Release message cannot be empty.")
 
 
 def parse_version(s: str) -> tuple[int, int, int]:
@@ -215,13 +225,6 @@ def ensure_main_branch() -> None:
         raise DeployError(f"Deploy must be run from 'main', got '{branch or '<detached>'}'.")
 
 
-def ensure_clean_worktree() -> None:
-    """Ensure there are no tracked changes."""
-    status = git_output("status", "--porcelain", "--untracked-files=no")
-    if status:
-        raise DeployError("Working tree has tracked changes. Commit or stash them before deploy.")
-
-
 def has_origin_remote() -> bool:
     """Return True if the repo has an origin remote."""
     remotes = git_output("remote")
@@ -264,36 +267,6 @@ def ensure_synced_with_origin_main() -> None:
     raise DeployError("Local main is behind origin/main.")
 
 
-def ensure_tag_absent(tag_name: str) -> None:
-    """Ensure the release tag does not already exist locally or remotely."""
-    if remote_ref_exists(f"refs/tags/{tag_name}"):
-        raise DeployError(f"Tag '{tag_name}' already exists locally.")
-
-    if not has_origin_remote():
-        return
-
-    try:
-        git_output("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/{tag_name}")
-    except DeployError as err:
-        msg = str(err)
-        if "Command failed (2)" in msg:
-            return
-        raise
-    raise DeployError(f"Tag '{tag_name}' already exists on origin.")
-
-
-def create_and_push_tag(tag_name: str, version: str) -> None:
-    """Create and push an annotated release tag."""
-    ensure_tag_absent(tag_name)
-    run(["git", "tag", "-a", tag_name, "-m", f"Release {version}"], cwd=ROOT)
-    try:
-        run(["git", "push", "origin", tag_name], cwd=ROOT)
-    except DeployError:
-        if remote_ref_exists(f"refs/tags/{tag_name}"):
-            run(["git", "tag", "-d", tag_name], cwd=ROOT)
-        raise
-
-
 def snapshot_files(paths: Iterable[Path]) -> dict[Path, str]:
     """Snapshot file contents for later restoration."""
     return {path: path.read_text(encoding="utf-8") for path in paths}
@@ -308,8 +281,46 @@ def restore_files(snapshot: dict[Path, str]) -> None:
 def validate_release_state() -> None:
     """Validate preconditions for a release run."""
     ensure_main_branch()
-    ensure_clean_worktree()
     ensure_synced_with_origin_main()
+
+
+def ensure_tag_absent(tag_name: str) -> None:
+    """Ensure the release tag does not already exist locally or remotely."""
+    if remote_ref_exists(f"refs/tags/{tag_name}"):
+        raise DeployError(f"Tag '{tag_name}' already exists locally.")
+
+    if not has_origin_remote():
+        return
+
+    try:
+        git_output("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/{tag_name}")
+    except DeployError as err:
+        if "Command failed (2)" in str(err):
+            return
+        raise
+    raise DeployError(f"Tag '{tag_name}' already exists on origin.")
+
+
+def commit_release(commit_message: str) -> None:
+    """Stage repo changes and create the release commit."""
+    run(["git", "add", "-A"], cwd=ROOT)
+    run(["git", "commit", "-m", commit_message], cwd=ROOT)
+
+
+def push_main() -> None:
+    """Push the local main branch to origin."""
+    run(["git", "push", "origin", "main"], cwd=ROOT)
+
+
+def create_and_push_tag(tag_name: str, version: str) -> None:
+    """Create and push an annotated release tag."""
+    run(["git", "tag", "-a", tag_name, "-m", f"Release {version}"], cwd=ROOT)
+    try:
+        run(["git", "push", "origin", tag_name], cwd=ROOT)
+    except DeployError:
+        if remote_ref_exists(f"refs/tags/{tag_name}"):
+            run(["git", "tag", "-d", tag_name], cwd=ROOT)
+        raise
 
 
 def print_build_artifacts() -> None:
@@ -328,6 +339,7 @@ def print_build_artifacts() -> None:
 def main() -> int:
     """Main deployment flow."""
     version_snapshot: dict[Path, str] | None = None
+    release_committed = False
     try:
         ensure_tools()
         if not PYPROJECT.exists():
@@ -351,9 +363,7 @@ def main() -> int:
             print("Canceled.")
             return 0
 
-        tag_name = f"v{new_version}"
-        ensure_tag_absent(tag_name)
-
+        release_message = prompt_release_message()
         version_snapshot = snapshot_files([PYPROJECT, INIT_FILE])
 
         print(f"Bumping version: {current} -> {new_version} ({bump_kind})")
@@ -372,6 +382,17 @@ def main() -> int:
         print("Building package with uv...")
         build_package()
 
+        tag_name = f"v{new_version}"
+        commit_message = f"{tag_name}: {release_message}"
+        ensure_tag_absent(tag_name)
+
+        print(f"Creating release commit: {commit_message}")
+        commit_release(commit_message)
+        release_committed = True
+
+        print("Pushing main...")
+        push_main()
+
         print(f"Creating and pushing tag {tag_name}...")
         create_and_push_tag(tag_name, new_version)
 
@@ -379,7 +400,7 @@ def main() -> int:
         print("Done.")
         return 0
     except DeployError as err:
-        if version_snapshot is not None:
+        if version_snapshot is not None and not release_committed:
             restore_files(version_snapshot)
             print("Restored version files after failed deploy.", file=sys.stderr)
         print(f"ERROR: {err}", file=sys.stderr)

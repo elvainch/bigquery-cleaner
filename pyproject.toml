@@ -1,6 +1,6 @@
 [project]
 name = "bigquery-cleaner"
-version = "0.1.4"
+version = "0.1.6"
 description = "CLI tool to clean up your BigQuery old and unused datasets and tables."
 readme = "README.md"
 requires-python = ">=3.10"

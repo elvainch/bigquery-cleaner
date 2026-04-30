@@ -55,15 +55,6 @@ def test_ensure_synced_with_origin_main_detects_invalid_states(
         deploy.ensure_synced_with_origin_main()
 
 
-def test_ensure_tag_absent_rejects_existing_local_tag(monkeypatch: pytest.MonkeyPatch) -> None:
-    deploy = load_deploy_module()
-
-    monkeypatch.setattr(deploy, "remote_ref_exists", lambda ref: ref == "refs/tags/v0.1.5")
-
-    with pytest.raises(deploy.DeployError, match="already exists locally"):
-        deploy.ensure_tag_absent("v0.1.5")
-
-
 def test_main_rolls_back_version_files_on_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -81,7 +72,7 @@ def test_main_rolls_back_version_files_on_failure(
     monkeypatch.setattr(deploy, "validate_release_state", lambda: None)
     monkeypatch.setattr(deploy, "prompt_bump", lambda: "patch")
     monkeypatch.setattr(deploy, "confirm_bump", lambda current, new_version, kind: True)
-    monkeypatch.setattr(deploy, "ensure_tag_absent", lambda tag_name: None)
+    monkeypatch.setattr(deploy, "prompt_release_message", lambda: "Ship it")
     monkeypatch.setattr(
         deploy,
         "sync_dev_deps",
@@ -95,7 +86,7 @@ def test_main_rolls_back_version_files_on_failure(
     assert init_file.read_text(encoding="utf-8") == '__version__ = "0.1.4"\n'
 
 
-def test_main_success_creates_and_pushes_tag(
+def test_main_success_commits_pushes_and_tags_release(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -113,11 +104,14 @@ def test_main_success_creates_and_pushes_tag(
     monkeypatch.setattr(deploy, "validate_release_state", lambda: calls.append("validate_release_state"))
     monkeypatch.setattr(deploy, "prompt_bump", lambda: "patch")
     monkeypatch.setattr(deploy, "confirm_bump", lambda current, new_version, kind: True)
-    monkeypatch.setattr(deploy, "ensure_tag_absent", lambda tag_name: calls.append(f"ensure_tag_absent:{tag_name}"))
+    monkeypatch.setattr(deploy, "prompt_release_message", lambda: "Ship it")
     monkeypatch.setattr(deploy, "sync_dev_deps", lambda: calls.append("sync_dev_deps"))
     monkeypatch.setattr(deploy, "run_ruff", lambda: calls.append("run_ruff"))
     monkeypatch.setattr(deploy, "run_tests", lambda: calls.append("run_tests"))
     monkeypatch.setattr(deploy, "build_package", lambda: calls.append("build_package"))
+    monkeypatch.setattr(deploy, "ensure_tag_absent", lambda tag_name: calls.append(f"ensure_tag_absent:{tag_name}"))
+    monkeypatch.setattr(deploy, "commit_release", lambda message: calls.append(f"commit_release:{message}"))
+    monkeypatch.setattr(deploy, "push_main", lambda: calls.append("push_main"))
     monkeypatch.setattr(deploy, "create_and_push_tag", lambda tag_name, version: calls.append(f"tag:{tag_name}:{version}"))
     monkeypatch.setattr(deploy, "print_build_artifacts", lambda: calls.append("print_build_artifacts"))
 
@@ -127,13 +121,52 @@ def test_main_success_creates_and_pushes_tag(
     assert calls == [
         "ensure_tools",
         "validate_release_state",
-        "ensure_tag_absent:v0.1.5",
         "sync_dev_deps",
         "run_ruff",
         "run_tests",
         "build_package",
+        "ensure_tag_absent:v0.1.5",
+        "commit_release:v0.1.5: Ship it",
+        "push_main",
         "tag:v0.1.5:0.1.5",
         "print_build_artifacts",
     ]
+    assert pyproject.read_text(encoding="utf-8") == '[project]\nversion = "0.1.5"\n'
+    assert init_file.read_text(encoding="utf-8") == '__version__ = "0.1.5"\n'
+
+
+def test_main_does_not_restore_files_after_commit_failure_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    deploy = load_deploy_module()
+
+    pyproject = tmp_path / "pyproject.toml"
+    init_file = tmp_path / "__init__.py"
+    pyproject.write_text('[project]\nversion = "0.1.4"\n', encoding="utf-8")
+    init_file.write_text('__version__ = "0.1.4"\n', encoding="utf-8")
+
+    monkeypatch.setattr(deploy, "PYPROJECT", pyproject)
+    monkeypatch.setattr(deploy, "INIT_FILE", init_file)
+    monkeypatch.setattr(deploy, "ensure_tools", lambda: None)
+    monkeypatch.setattr(deploy, "validate_release_state", lambda: None)
+    monkeypatch.setattr(deploy, "prompt_bump", lambda: "patch")
+    monkeypatch.setattr(deploy, "confirm_bump", lambda current, new_version, kind: True)
+    monkeypatch.setattr(deploy, "prompt_release_message", lambda: "Ship it")
+    monkeypatch.setattr(deploy, "sync_dev_deps", lambda: None)
+    monkeypatch.setattr(deploy, "run_ruff", lambda: None)
+    monkeypatch.setattr(deploy, "run_tests", lambda: None)
+    monkeypatch.setattr(deploy, "build_package", lambda: None)
+    monkeypatch.setattr(deploy, "ensure_tag_absent", lambda tag_name: None)
+    monkeypatch.setattr(deploy, "commit_release", lambda message: None)
+    monkeypatch.setattr(
+        deploy,
+        "push_main",
+        lambda: (_ for _ in ()).throw(deploy.DeployError("push failed")),
+    )
+
+    result = deploy.main()
+
+    assert result == 1
     assert pyproject.read_text(encoding="utf-8") == '[project]\nversion = "0.1.5"\n'
     assert init_file.read_text(encoding="utf-8") == '__version__ = "0.1.5"\n'
