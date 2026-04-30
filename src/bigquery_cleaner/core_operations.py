@@ -36,6 +36,7 @@ def get_non_queried_tables(
     Returns:
         Mapping of fully-qualified dataset (``project.dataset``) to a sorted list of unqueried
         table metadata.
+        Example: ``{"demo-project.analytics": [TableMetadata(table_id="events")]}``
 
     """
     client, loc_groups = get_execution_context(cfg)
@@ -62,6 +63,7 @@ def get_old_modified_tables(
 
     Returns:
         Mapping: ``project.dataset`` -> [TableMetadata ...]
+        Example: ``{"demo-project.analytics": [TableMetadata(table_id="events", modified=datetime(...))]}``
 
     """
     client, loc_groups = get_execution_context(cfg)
@@ -86,6 +88,7 @@ def get_old_tables(
         Mapping of ``project.dataset`` -> [TableMetadata ...] for tables that:
         - were modified more than ``days`` ago
         - have not been referenced in the last ``days``
+        Example: ``{"demo-project.analytics": [TableMetadata(table_id="events", modified=datetime(...))]}``
 
     """
     unqueried_by_dataset = get_non_queried_tables(cfg)
@@ -134,6 +137,7 @@ def rename_unused_tables(
 
     Returns:
         Mapping: ``project.dataset`` -> [(``old_table_id``, ``new_table_id``) ...]
+        Example: ``{"demo-project.analytics": [("events", "events_renamed_20260430")]}``
 
     """
     candidates_meta = get_old_tables(cfg)
@@ -195,6 +199,7 @@ def revert_renamed_tables(
 
     Returns:
         Mapping: ``project.dataset`` -> [(``current_table_id``, ``reverted_table_id``) ...]
+        Example: ``{"demo-project.analytics": [("events_renamed_20260430", "events")]}``
 
     """
     client, loc_groups = get_execution_context(cfg)
@@ -252,6 +257,7 @@ def delete_suffixed_tables(
 
     Returns:
         Mapping: ``project.dataset`` -> [``deleted_table_id`` ...]
+        Example: ``{"demo-project.analytics": ["events_renamed_20260430"]}``
 
     """
     client, loc_groups = get_execution_context(cfg)
@@ -299,6 +305,7 @@ def delete_empty_datasets(
 
     Returns:
         List of fully-qualified dataset IDs (project.dataset) that were deleted (or would be).
+        Example: ``["demo-project.analytics", "demo-project.staging"]``
 
     """
     client, loc_groups = get_execution_context(cfg)

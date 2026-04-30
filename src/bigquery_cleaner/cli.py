@@ -195,6 +195,7 @@ def tables(
     cfg: CleanerConfig = resolve_config(
         path=config,
         cli_project=project,
+        cli_jobs_projects_csv=None,
         cli_datasets_csv=datasets,
         cli_exclude_datasets_csv=exclude_datasets,
         cli_all_datasets=all_datasets,
@@ -251,6 +252,7 @@ def unused_tables(
     datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of dataset names")] = None,
     exclude_datasets: Annotated[str | None, typer.Option("--exclude-datasets", help="Comma-separated list of datasets to exclude")] = None,
     project: Annotated[str | None, typer.Option("--project", help="Project ID used for all dataset names")] = None,
+    jobs_projects: Annotated[str | None, typer.Option("--jobs-projects", help="Comma-separated list of extra projects whose INFORMATION_SCHEMA.JOBS views should be scanned")] = None,
     days: Annotated[int | None, typer.Option("--days", help="Lookback window in days")] = None,
     all_datasets: Annotated[bool, typer.Option("--all-datasets", help="Scan all datasets in the project")] = False,
     config: Annotated[str | None, typer.Option("--config", help="Path to TOML config file")] = None,
@@ -265,6 +267,7 @@ def unused_tables(
         datasets: Comma-separated list of datasets to inspect.
         exclude_datasets: Comma-separated list of datasets to exclude.
         project: GCP project ID.
+        jobs_projects: Comma-separated list of extra projects whose jobs history should count as usage.
         days: Lookback window in days.
         all_datasets: Flag to scan all datasets in the project.
         config: Path to TOML config file.
@@ -277,6 +280,7 @@ def unused_tables(
     cfg: CleanerConfig = resolve_config(
         path=config,
         cli_project=project,
+        cli_jobs_projects_csv=jobs_projects,
         cli_datasets_csv=datasets,
         cli_exclude_datasets_csv=exclude_datasets,
         cli_all_datasets=all_datasets,
@@ -297,6 +301,7 @@ def rename_old_tables_cmd(
     datasets: Annotated[str | None, typer.Option("--datasets", help="Comma-separated list of dataset names")] = None,
     exclude_datasets: Annotated[str | None, typer.Option("--exclude-datasets", help="Comma-separated list of datasets to exclude")] = None,
     project: Annotated[str | None, typer.Option("--project", help="Project ID used for all dataset names")] = None,
+    jobs_projects: Annotated[str | None, typer.Option("--jobs-projects", help="Comma-separated list of extra projects whose INFORMATION_SCHEMA.JOBS views should be scanned")] = None,
     days: Annotated[int | None, typer.Option("--days", help="Lookback window in days")] = None,
     suffix: Annotated[str | None, typer.Option("--suffix", help="Suffix to append to renamed tables")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="If set, only print what would be renamed without executing")] = False,
@@ -310,6 +315,7 @@ def rename_old_tables_cmd(
         datasets: Comma-separated list of datasets to inspect.
         exclude_datasets: Comma-separated list of datasets to exclude.
         project: GCP project ID.
+        jobs_projects: Comma-separated list of extra projects whose jobs history should count as usage.
         days: Lookback window in days.
         suffix: Suffix to append to renamed tables.
         dry_run: If True, do not perform actual renaming.
@@ -324,6 +330,7 @@ def rename_old_tables_cmd(
     cfg: CleanerConfig = resolve_config(
         path=config,
         cli_project=project,
+        cli_jobs_projects_csv=jobs_projects,
         cli_datasets_csv=datasets,
         cli_exclude_datasets_csv=exclude_datasets,
         cli_all_datasets=all_datasets,
@@ -385,6 +392,7 @@ def revert_renamed_tables_cmd(
     cfg: CleanerConfig = resolve_config(
         path=config,
         cli_project=project,
+        cli_jobs_projects_csv=None,
         cli_datasets_csv=datasets,
         cli_exclude_datasets_csv=exclude_datasets,
         cli_all_datasets=all_datasets,
@@ -446,6 +454,7 @@ def delete_tables_cmd(
     cfg: CleanerConfig = resolve_config(
         path=config,
         cli_project=project,
+        cli_jobs_projects_csv=None,
         cli_datasets_csv=datasets,
         cli_exclude_datasets_csv=exclude_datasets,
         cli_all_datasets=all_datasets,
@@ -508,6 +517,7 @@ def delete_empty_datasets_cmd(
     cfg: CleanerConfig = resolve_config(
         path=config,
         cli_project=project,
+        cli_jobs_projects_csv=None,
         cli_datasets_csv=datasets,
         cli_exclude_datasets_csv=exclude_datasets,
         cli_all_datasets=all_datasets,

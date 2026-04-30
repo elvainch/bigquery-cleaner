@@ -11,6 +11,10 @@ project = "YOUR_PROJECT"
 # Datasets to skip during analysis.
 # exclude_datasets = ["test_dataset", "legacy_ds"]
 
+# Extra projects whose INFORMATION_SCHEMA.JOBS history should count as table usage.
+# The main project above is always included automatically.
+# jobs_projects = ["analytics-project", "bi-project"]
+
 # Scan all datasets in the project (alternative to the above).
 # all_datasets = true
 

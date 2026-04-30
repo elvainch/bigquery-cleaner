@@ -41,6 +41,74 @@ def build_config(**overrides) -> CleanerConfig:
     return cfg
 
 
+def test_unused_tables_command_passes_jobs_projects_to_resolve_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Forward extra jobs projects from the CLI into config resolution."""
+    captured: dict[str, object] = {}
+
+    def fake_resolve_config(**kwargs) -> CleanerConfig:
+        """Capture the config resolution inputs for assertion."""
+        captured.update(kwargs)
+        return build_config()
+
+    def fake_get_old_tables(cfg: CleanerConfig) -> dict[str, list[object]]:
+        """Return no unused tables for the command output path."""
+        assert cfg.project == "demo-project"
+        return {}
+
+    monkeypatch.setattr("bigquery_cleaner.cli.resolve_config", fake_resolve_config)
+    monkeypatch.setattr("bigquery_cleaner.cli.get_old_tables", fake_get_old_tables)
+
+    result = runner.invoke(
+        app,
+        [
+            "list-unused-tables",
+            "--project",
+            "demo-project",
+            "--datasets",
+            "alpha",
+            "--jobs-projects",
+            "audit-project,bi-project",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["cli_jobs_projects_csv"] == "audit-project,bi-project"
+
+
+def test_rename_old_tables_command_passes_jobs_projects_to_resolve_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Forward extra jobs projects on the rename command as well."""
+    captured: dict[str, object] = {}
+
+    def fake_resolve_config(**kwargs) -> CleanerConfig:
+        """Capture the config resolution inputs for assertion."""
+        captured.update(kwargs)
+        return build_config()
+
+    def fake_rename_unused_tables(cfg: CleanerConfig) -> dict[str, list[tuple[str, str]]]:
+        """Return no rename candidates for the command output path."""
+        assert cfg.project == "demo-project"
+        return {}
+
+    monkeypatch.setattr("bigquery_cleaner.cli.resolve_config", fake_resolve_config)
+    monkeypatch.setattr("bigquery_cleaner.cli.rename_unused_tables", fake_rename_unused_tables)
+
+    result = runner.invoke(
+        app,
+        [
+            "rename-old-tables",
+            "--project",
+            "demo-project",
+            "--datasets",
+            "alpha",
+            "--jobs-projects",
+            "audit-project,bi-project",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["cli_jobs_projects_csv"] == "audit-project,bi-project"
+
+
 def test_version_command_prints_package_version() -> None:
     """Expose the package version through the CLI."""
     result = runner.invoke(app, ["version"])

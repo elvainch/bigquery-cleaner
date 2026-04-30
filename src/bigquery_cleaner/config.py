@@ -24,6 +24,7 @@ class CleanerConfig:
     """Store the effective BigQuery Cleaner configuration."""
 
     project: str | None = None
+    jobs_projects: list[str] | None = None
     datasets: list[str] | None = None
     exclude_datasets: list[str] | None = None
     all_datasets: bool = False
@@ -65,6 +66,7 @@ def load_config(path: str | None) -> CleanerConfig:
 
     return CleanerConfig(
         project=cfg.get("project"),
+        jobs_projects=cfg.get("jobs_projects"),
         datasets=cfg.get("datasets"),
         exclude_datasets=cfg.get("exclude_datasets"),
         all_datasets=bool(cfg.get("all_datasets", False)),
@@ -98,6 +100,7 @@ def resolve_config(
     *,
     path: str | None,
     cli_project: str | None,
+    cli_jobs_projects_csv: str | None = None,
     cli_datasets_csv: str | None,
     cli_exclude_datasets_csv: str | None = None,
     cli_all_datasets: bool,
@@ -109,13 +112,15 @@ def resolve_config(
     """Merge TOML config with CLI flags and return the effective configuration.
 
     Precedence: CLI flags override TOML values. Datasets can be provided as a comma-separated list
-    via CLI or an array in TOML. If both CLI datasets and `all_datasets` are provided, `all_datasets`
-    takes precedence in downstream logic but both are returned as set here without validation to
-    keep behavior consistent with the CLI.
+    via CLI or an array in TOML. If both `datasets` and `all_datasets` are set, the current
+    implementation still uses the explicit dataset list during downstream dataset selection.
+    The `all_datasets` flag remains set on the resolved config, but it does not override a
+    non-empty `datasets` value later in the execution flow.
 
     Args:
         path: Optional path to the TOML configuration file.
         cli_project: GCP project ID from CLI.
+        cli_jobs_projects_csv: Comma-separated list of extra projects to scan for query jobs.
         cli_datasets_csv: Comma-separated list of datasets from CLI.
         cli_exclude_datasets_csv: Comma-separated list of datasets to exclude from CLI.
         cli_all_datasets: Flag to scan all datasets from CLI.
@@ -137,6 +142,9 @@ def resolve_config(
     merged.rename_suffix = cli_rename_suffix if cli_rename_suffix is not None else base.rename_suffix
     merged.dry_run = bool(cli_dry_run) or bool(base.dry_run)
     merged.log_level = cli_log_level or base.log_level
+
+    cli_jobs_projects = _parse_datasets_csv(cli_jobs_projects_csv)
+    merged.jobs_projects = cli_jobs_projects if cli_jobs_projects is not None else base.jobs_projects
 
     cli_datasets = _parse_datasets_csv(cli_datasets_csv)
     merged.datasets = cli_datasets if cli_datasets is not None else base.datasets

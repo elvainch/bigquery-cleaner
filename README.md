@@ -145,6 +145,10 @@ datasets = ["dataset1", "dataset2"]
 # List of datasets to ignore
 exclude_datasets = ["logs_dataset", "temp_staging"]
 
+# Extra projects whose INFORMATION_SCHEMA.JOBS history should count as usage.
+# The main project is always included automatically.
+jobs_projects = ["analytics-project", "bi-project"]
+
 # If true, scans all datasets in the project (overrides 'datasets' list)
 all_datasets = true
 
@@ -175,6 +179,7 @@ bigquery-cleaner list-unused-tables --config cleaner.toml
 ## 📝 Notes
 
 - **Detection Logic**: The `list-unused-tables` command identifies tables created more than `N` days ago that do not appear in `INFORMATION_SCHEMA.JOBS.referenced_tables` within that same window.
+- **Cross-Project Usage Checks**: Set `jobs_projects` or pass `--jobs-projects` to also scan query history from other projects that may read the same tables.
 - **Rich Output**: All results are displayed in beautiful, sortable tables thanks to the `Rich` library. Includes total table counts and storage size summaries.
 - **Linting & Quality**: The project uses **Ruff** for fast linting and formatting.
 

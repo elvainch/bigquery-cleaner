@@ -11,6 +11,7 @@ from bigquery_cleaner.utils import (
     compute_unqueried_for_location,
     get_ds_to_loc_map,
     get_execution_context,
+    get_jobs_projects,
 )
 
 
@@ -85,18 +86,27 @@ def test_get_ds_to_loc_map_flattens_location_groups() -> None:
     }
 
 
+def test_get_jobs_projects_includes_main_project_and_deduplicates() -> None:
+    """Always scan the main project first when building jobs-project inputs."""
+    cfg = CleanerConfig(project="demo", jobs_projects=["audit-project", "demo", "bi-project"])
+
+    jobs_projects = get_jobs_projects(cfg, "demo")
+
+    assert jobs_projects == ["demo", "audit-project", "bi-project"]
+
+
 def test_compute_unqueried_for_location_excludes_recently_referenced_tables(monkeypatch) -> None:
     """Return only tables absent from the recent-reference set."""
     created = datetime(2026, 4, 1, 10, 0)
     alpha_old = TableMetadata(table_id="old_table", created=created, size_bytes=10)
     alpha_recent = TableMetadata(table_id="recent_table", created=created, size_bytes=20)
     beta_only = TableMetadata(table_id="beta_table", created=created, size_bytes=30)
-    cfg = CleanerConfig(project="demo", datasets=["alpha", "beta"], days=30)
 
     def fake_get_recent_referenced_tables_by_dataset(**kwargs) -> dict[str, set[str]]:
         """Return deterministic recent-reference data."""
         assert kwargs["location"] == "US"
         assert kwargs["days"] == 30
+        assert kwargs["jobs_projects"] == ["demo", "audit-project"]
         return {"alpha": {"recent_table"}, "beta": set()}
 
     def fake_get_all_tables_for_location(**kwargs) -> dict[str, dict[str, TableMetadata]]:
@@ -120,7 +130,7 @@ def test_compute_unqueried_for_location_excludes_recently_referenced_tables(monk
         client=DummyClient("demo"),
         location="US",
         project_dataset_pairs=[("demo", "alpha"), ("demo", "beta")],
-        cfg=cfg,
+        cfg=CleanerConfig(project="demo", datasets=["alpha", "beta"], days=30, jobs_projects=["audit-project"]),
     )
 
     assert results == {

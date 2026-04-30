@@ -38,6 +38,7 @@ def get_client(project_id: str | None = None) -> bigquery.Client:
 
     Returns:
         An authenticated bigquery.Client instance.
+        Example: ``bigquery.Client(project="demo-project")``
 
     """
     return bigquery.Client(project=project_id) if project_id else bigquery.Client()
@@ -52,6 +53,7 @@ def _split_dataset_ref(dataset: str, project_id: str | None) -> tuple[str, str]:
 
     Returns:
         A tuple of (project_id, dataset_id).
+        Example: ``("demo-project", "analytics")``
 
     Raises:
         ValueError: If the dataset is project-qualified or no project_id is provided.
@@ -74,6 +76,7 @@ def list_datasets(project_id: str | None) -> list[str]:
 
     Returns:
         A list of dataset IDs.
+        Example: ``["analytics", "staging", "archive"]``
 
     """
     client = get_client(project_id)
@@ -100,6 +103,7 @@ def normalize_datasets(
 
     Returns:
         A list of (project_id, dataset_id) tuples.
+        Example: ``[("demo-project", "analytics"), ("demo-project", "staging")]``
 
     """
     project_dataset_pairs: list[tuple[str, str]] = []
@@ -137,6 +141,7 @@ def group_datasets_by_location(
 
     Returns:
         A dictionary mapping location strings to lists of (project_id, dataset_id) tuples.
+        Example: ``{"US": [("demo-project", "analytics")], "EU": [("demo-project", "reporting")]}``
 
     """
     groups: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -151,6 +156,7 @@ def get_recent_referenced_tables_by_dataset(
     location: str,
     project_dataset_pairs: list[tuple[str, str]],
     days: int,
+    jobs_projects: list[str],
 ) -> defaultdict[str, set[str]]:
     """Return recent referenced tables grouped by dataset for a location.
 
@@ -161,32 +167,41 @@ def get_recent_referenced_tables_by_dataset(
         location: Dataset location (e.g., "US").
         project_dataset_pairs: List of (project_id, dataset_id) tuples.
         days: Lookback window in days.
+        jobs_projects: Projects whose INFORMATION_SCHEMA.JOBS views should be scanned.
 
     Returns:
         A dictionary mapping dataset ID to a set of table IDs referenced in queries.
+        Example: ``{"analytics": {"events", "sessions"}, "staging": {"raw_imports"}}``
 
     """
     region_dataset = f"region-{location.lower()}"
-    project = project_dataset_pairs[0][0]
+    dataset_project = project_dataset_pairs[0][0]
     # Extract unique dataset IDs from the project-dataset pairs.
     dataset_ids = sorted({dataset_id for _, dataset_id in project_dataset_pairs})
 
-    query = recent_references_across_datasets_sql(project, region_dataset)
-    cfg = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("days", "INT64", days),
-            bigquery.ScalarQueryParameter("project_id", "STRING", project),
-            bigquery.ArrayQueryParameter("dataset_ids", "STRING", dataset_ids),
-        ]
-    )
     out: defaultdict[str, set[str]] = defaultdict(set)
-    try:
-        for row in client.query(query, job_config=cfg, location=location).result():
-            out[row["dataset_id"]].add(row["table_id"])
-    except Exception as err:
-        logger.warning("Recent references query failed for location %s: %s", location, err)
-        out = defaultdict(set)
-        raise err
+    for jobs_project in jobs_projects:
+        query = recent_references_across_datasets_sql(jobs_project, region_dataset)
+        cfg = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("days", "INT64", days),
+                bigquery.ScalarQueryParameter("dataset_project_id", "STRING", dataset_project),
+                bigquery.ArrayQueryParameter("dataset_ids", "STRING", dataset_ids),
+            ]
+        )
+        try:
+            for row in client.query(query, job_config=cfg, location=location).result():
+                out[row["dataset_id"]].add(row["table_id"])
+        except Exception as err:
+            logger.warning(
+                "Recent references query failed for jobs project %s in location %s: %s",
+                jobs_project,
+                location,
+                err,
+            )
+            raise RuntimeError(
+                f"Failed to query INFORMATION_SCHEMA.JOBS for project '{jobs_project}' in location '{location}'."
+            ) from err
     return out
 
 
@@ -206,6 +221,7 @@ def get_all_tables_for_location(
 
     Returns:
         A dictionary mapping dataset ID to a dict of table_id -> TableMetadata.
+        Example: ``{"analytics": {"events": TableMetadata(table_id="events", size_bytes=1024)}}``
 
     """
     region_dataset = f"region-{location.lower()}"
@@ -252,6 +268,7 @@ def get_old_modified_tables_for_location(
 
     Returns:
         Mapping: ``project.dataset`` -> [TableMetadata ...]
+        Example: ``{"demo-project.analytics": [TableMetadata(table_id="events", modified=datetime(...))]}``
 
     """
     region_dataset = f"region-{location.lower()}"
@@ -363,6 +380,7 @@ def table_exists(
 
     Returns:
         True if the table exists, False otherwise.
+        Example: ``True``
 
     """
     table_ref = bigquery.TableReference(

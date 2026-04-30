@@ -8,7 +8,7 @@ def recent_references_across_datasets_sql(project: str, region_dataset: str) -> 
 
     Uses INFORMATION_SCHEMA.JOBS.referenced_tables. Expects parameters:
       - @days (INT64)
-      - @project_id (STRING)
+      - @dataset_project_id (STRING)
       - @dataset_ids (ARRAY<STRING>)
     """
     return f"""
@@ -17,7 +17,7 @@ def recent_references_across_datasets_sql(project: str, region_dataset: str) -> 
              UNNEST(j.referenced_tables) AS t
         WHERE j.job_type = 'QUERY'
           AND j.creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
-          AND t.project_id = @project_id
+          AND t.project_id = @dataset_project_id
           AND t.dataset_id IN UNNEST(@dataset_ids)
     """
 

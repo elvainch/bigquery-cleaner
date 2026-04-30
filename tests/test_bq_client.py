@@ -52,10 +52,13 @@ class RecordingClient:
         self.rows = rows or []
         self.queries: list[tuple[str, object, str | None]] = []
         self.deleted_datasets: list[tuple[object, bool, bool]] = []
+        self.query_handler = None
 
     def query(self, query: str, job_config=None, location: str | None = None) -> DummyQueryJob:
         """Record the query and return the configured rows."""
         self.queries.append((query, job_config, location))
+        if self.query_handler is not None:
+            return self.query_handler(query, job_config, location)
         return DummyQueryJob(self.rows)
 
     def delete_dataset(self, dataset_ref, delete_contents: bool, not_found_ok: bool) -> None:
@@ -124,29 +127,71 @@ def test_group_datasets_by_location_uses_dataset_metadata() -> None:
 
 
 def test_get_recent_referenced_tables_by_dataset_returns_table_sets() -> None:
-    """Aggregate referenced table IDs by dataset."""
-    rows = [
-        {"dataset_id": "alpha", "table_id": "table_one"},
-        {"dataset_id": "alpha", "table_id": "table_two"},
-        {"dataset_id": "beta", "table_id": "table_three"},
-    ]
-    client = RecordingClient(rows)
+    """Aggregate referenced table IDs across multiple jobs projects."""
+    client = RecordingClient()
+
+    def query_handler(query: str, job_config, location: str | None) -> DummyQueryJob:
+        """Return rows based on which jobs project is being queried."""
+        del job_config
+        assert location == "US"
+        if "`audit-project`.`region-us`.INFORMATION_SCHEMA.JOBS" in query:
+            return DummyQueryJob(
+                [
+                    {"dataset_id": "alpha", "table_id": "table_one"},
+                    {"dataset_id": "beta", "table_id": "table_three"},
+                ]
+            )
+        if "`bi-project`.`region-us`.INFORMATION_SCHEMA.JOBS" in query:
+            return DummyQueryJob(
+                [
+                    {"dataset_id": "alpha", "table_id": "table_two"},
+                    {"dataset_id": "beta", "table_id": "table_three"},
+                ]
+            )
+        raise AssertionError(f"Unexpected query: {query}")
+
+    client.query_handler = query_handler
 
     result = get_recent_referenced_tables_by_dataset(
         client=client,
         location="US",
         project_dataset_pairs=[("demo", "alpha"), ("demo", "beta")],
         days=30,
+        jobs_projects=["audit-project", "bi-project"],
     )
 
     assert result == {
         "alpha": {"table_one", "table_two"},
         "beta": {"table_three"},
     }
-    query, job_config, location = client.queries[0]
-    assert "INFORMATION_SCHEMA.JOBS" in query
-    assert location == "US"
-    assert isinstance(job_config, bigquery.QueryJobConfig)
+    assert len(client.queries) == 2
+    for query, job_config, location in client.queries:
+        assert "INFORMATION_SCHEMA.JOBS" in query
+        assert location == "US"
+        assert isinstance(job_config, bigquery.QueryJobConfig)
+
+
+def test_get_recent_referenced_tables_by_dataset_raises_when_one_jobs_project_fails() -> None:
+    """Abort the scan when one jobs project cannot be queried."""
+    client = RecordingClient()
+
+    def query_handler(query: str, job_config, location: str | None) -> DummyQueryJob:
+        """Raise only for the second jobs project to simulate missing access."""
+        del job_config, location
+        if "`audit-project`.`region-us`.INFORMATION_SCHEMA.JOBS" in query:
+            return DummyQueryJob([{"dataset_id": "alpha", "table_id": "table_one"}])
+        raise RuntimeError("permission denied")
+
+    client.query_handler = query_handler
+
+    with pytest.raises(RuntimeError, match=r"Failed to query INFORMATION_SCHEMA\.JOBS for project 'bi-project'"):
+        get_recent_referenced_tables_by_dataset(
+            client=client,
+            location="US",
+            project_dataset_pairs=[("demo", "alpha")],
+            days=30,
+            jobs_projects=["audit-project", "bi-project"],
+        )
 
 
 def test_get_all_tables_for_location_returns_metadata_by_dataset() -> None:

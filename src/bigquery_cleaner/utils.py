@@ -55,6 +55,25 @@ def get_ds_to_loc_map(
     return ds_to_loc
 
 
+def get_jobs_projects(cfg: CleanerConfig, effective_project: str) -> list[str]:
+    """Return the effective jobs-scan project list with deduplication.
+
+    Args:
+        cfg: The cleaner configuration.
+        effective_project: The resolved main project used for dataset ownership.
+
+    Returns:
+        A deduplicated list of projects to scan for INFORMATION_SCHEMA.JOBS, always starting
+        with the effective main project.
+
+    """
+    jobs_projects = [effective_project]
+    for project_id in cfg.jobs_projects or []:
+        if project_id and project_id not in jobs_projects:
+            jobs_projects.append(project_id)
+    return jobs_projects
+
+
 def compute_unqueried_for_location(
     client: bigquery.Client, location: str, project_dataset_pairs: list[tuple[str, str]], cfg: CleanerConfig
 ) -> dict[str, list[TableMetadata]]:
@@ -70,11 +89,13 @@ def compute_unqueried_for_location(
         Mapping of ``project.dataset`` -> [TableMetadata ...]
 
     """
+    jobs_projects = get_jobs_projects(cfg, client.project)
     recent_by_ds = get_recent_referenced_tables_by_dataset(
         client=client,
         location=location,
         project_dataset_pairs=project_dataset_pairs,
         days=cfg.days,
+        jobs_projects=jobs_projects,
     )
     all_by_ds = get_all_tables_for_location(
         client=client,
