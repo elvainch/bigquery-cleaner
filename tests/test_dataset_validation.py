@@ -2,7 +2,7 @@
 
 import pytest
 
-from bigquery_cleaner.bq_client import _split_dataset_ref, normalize_datasets
+from bigquery_cleaner.bq_client import normalize_datasets, validate_dataset_name
 
 
 class DummyDataset:
@@ -25,16 +25,16 @@ class DummyClient:
         return [DummyDataset("alpha"), DummyDataset("beta")]
 
 
-def test_split_dataset_ref_rejects_fully_qualified_datasets() -> None:
+def test_validate_dataset_name_rejects_fully_qualified_datasets() -> None:
     """Reject fully qualified dataset names."""
     with pytest.raises(ValueError, match="unqualified dataset name"):
-        _split_dataset_ref("other_project.analytics", "test-project")
+        validate_dataset_name("other_project.analytics")
 
 
-def test_split_dataset_ref_requires_project_for_explicit_dataset_inputs() -> None:
-    """Require a project when explicit dataset names are provided."""
-    with pytest.raises(ValueError, match="Project must be provided"):
-        _split_dataset_ref("analytics", None)
+def test_validate_dataset_name_rejects_empty_names() -> None:
+    """Reject empty dataset names after trimming whitespace."""
+    with pytest.raises(ValueError, match="cannot be empty"):
+        validate_dataset_name("   ")
 
 
 def test_normalize_datasets_uses_single_project_for_dataset_names() -> None:

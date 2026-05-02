@@ -1,14 +1,27 @@
 """Typer CLI entrypoint for BigQuery Cleaner."""
 
 import logging
+from contextlib import contextmanager
 from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 
 from . import __version__, logger
-from .bq_client import TableMetadata, get_all_tables_for_location, get_client, list_datasets
+from .bq_client import (
+    TableMetadata,
+    get_all_tables_for_location,
+    get_client,
+    list_datasets,
+)
 from .config import CleanerConfig, resolve_config
 from .core_operations import (
     delete_empty_datasets,
@@ -69,6 +82,24 @@ def _validate_datasets(cfg: CleanerConfig) -> None:
         raise typer.Exit(code=2)
 
 
+def _validate_project(project: str | None) -> None:
+    """Ensure that an explicit project was provided.
+
+    Args:
+        project: The configured project ID to validate.
+
+    Raises:
+        typer.Exit: If project is missing.
+
+    """
+    if not project:
+        console.print(
+            "[red]Error: Provide --project (or set project via --config). ADC default project fallback is disabled.[/red]",
+            style="bold",
+        )
+        raise typer.Exit(code=2)
+
+
 def _print_unqueried_results(results: dict[str, list[TableMetadata]]) -> None:
     """Print grouped table results in a dataset-header format using rich Tables.
 
@@ -117,6 +148,43 @@ def _print_unqueried_results(results: dict[str, list[TableMetadata]]) -> None:
     console.print()
 
 
+@contextmanager
+def _mutation_progress(operation_label: str):
+    """Display batch progress for mutation commands."""
+    progress = Progress(
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    )
+    task_id: int | None = None
+    last_completed = 0
+
+    def update(completed: int, total: int) -> None:
+        """Advance the live progress display with cumulative counts."""
+        nonlocal task_id, last_completed
+        description = f"{operation_label}: Processed {completed}/{total} tables"
+        if task_id is None:
+            task_id = progress.add_task(description, total=total)
+        advance = max(0, completed - last_completed)
+        progress.update(
+            task_id,
+            description=description,
+            total=total,
+            completed=completed,
+            advance=advance,
+        )
+        last_completed = completed
+
+    progress.start()
+    try:
+        yield update
+    finally:
+        progress.stop()
+
+
 @app.command()
 def version() -> None:
     """Show version and exit."""
@@ -131,7 +199,7 @@ def ping(
     """Run a simple SELECT 1 query to validate connectivity.
 
     Args:
-        project: Optional GCP project ID to use.
+        project: GCP project ID to use.
         ctx: Typer context used to read the global log level.
 
     """
@@ -139,6 +207,7 @@ def ping(
     log_level = ctx.parent.params.get("log_level") if ctx.parent else "INFO"
     _apply_log_level(log_level)
 
+    _validate_project(project)
     client = get_client(project)
     query = "SELECT 1 AS one"
     _ = next(client.query(query).result())
@@ -147,13 +216,13 @@ def ping(
 
 @app.command()
 def datasets(
-    project: Annotated[str | None, typer.Option(help="GCP project ID; defaults to ADC project")] = None,
+    project: Annotated[str | None, typer.Option(help="GCP project ID to list datasets from")] = None,
     ctx: Annotated[typer.Context, typer.Option(hidden=True)] = None,
 ) -> None:
     """List datasets in the project.
 
     Args:
-        project: Optional GCP project ID to list datasets from.
+        project: GCP project ID to list datasets from.
         ctx: Typer context used to read the global log level.
 
     """
@@ -161,6 +230,7 @@ def datasets(
     log_level = ctx.parent.params.get("log_level") if ctx.parent else "INFO"
     _apply_log_level(log_level)
 
+    _validate_project(project)
     ids = list_datasets(project)
     if not ids:
         typer.echo("No datasets found.")
@@ -204,6 +274,7 @@ def tables(
     )
     _apply_log_level(cfg.log_level)
 
+    _validate_project(cfg.project)
     _validate_datasets(cfg)
 
     client, loc_groups = get_execution_context(cfg)
@@ -289,6 +360,7 @@ def unused_tables(
     )
     _apply_log_level(cfg.log_level)
 
+    _validate_project(cfg.project)
     _validate_datasets(cfg)
 
     results = get_old_tables(cfg)
@@ -341,9 +413,14 @@ def rename_old_tables_cmd(
     )
     _apply_log_level(cfg.log_level)
 
+    _validate_project(cfg.project)
     _validate_datasets(cfg)
 
-    results = rename_unused_tables(cfg)
+    if cfg.dry_run:
+        results = rename_unused_tables(cfg)
+    else:
+        with _mutation_progress("Rename") as progress_callback:
+            results = rename_unused_tables(cfg, progress_callback=progress_callback)
 
     if not results:
         console.print("[yellow]No tables found to rename.[/yellow]")
@@ -403,9 +480,14 @@ def revert_renamed_tables_cmd(
     )
     _apply_log_level(cfg.log_level)
 
+    _validate_project(cfg.project)
     _validate_datasets(cfg)
 
-    results = revert_renamed_tables(cfg)
+    if cfg.dry_run:
+        results = revert_renamed_tables(cfg)
+    else:
+        with _mutation_progress("Revert") as progress_callback:
+            results = revert_renamed_tables(cfg, progress_callback=progress_callback)
 
     if not results:
         console.print("[yellow]No tables found to revert.[/yellow]")
@@ -465,13 +547,18 @@ def delete_tables_cmd(
     )
     _apply_log_level(cfg.log_level)
 
+    _validate_project(cfg.project)
     _validate_datasets(cfg)
 
     if not cfg.rename_suffix:
         console.print("[red]Error: Provide --suffix (or set rename_suffix via --config) to specify which tables to delete[/red]", style="bold")
         raise typer.Exit(code=2)
 
-    results = delete_suffixed_tables(cfg)
+    if cfg.dry_run:
+        results = delete_suffixed_tables(cfg)
+    else:
+        with _mutation_progress("Delete") as progress_callback:
+            results = delete_suffixed_tables(cfg, progress_callback=progress_callback)
 
     if not results:
         console.print(f"[yellow]No tables found with suffix '{cfg.rename_suffix}' to delete.[/yellow]")
@@ -527,6 +614,7 @@ def delete_empty_datasets_cmd(
     )
     _apply_log_level(cfg.log_level)
 
+    _validate_project(cfg.project)
     _validate_datasets(cfg)
 
     deleted = delete_empty_datasets(cfg)

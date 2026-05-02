@@ -29,6 +29,8 @@ def get_execution_context(
         A tuple containing (BigQuery client, location groups).
 
     """
+    if not cfg.project:
+        raise ValueError("Project must be provided explicitly via --project or config.")
     client = get_client(cfg.project)
     effective_project = client.project
     project_dataset_pairs = normalize_datasets(client, cfg.datasets, effective_project, cfg.exclude_datasets)

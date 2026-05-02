@@ -28,7 +28,6 @@ class CleanerConfig:
     datasets: list[str] | None = None
     exclude_datasets: list[str] | None = None
     all_datasets: bool = False
-    location: str | None = None
     days: int = 30
     rename_suffix: str = ""  # Initialized in __post_init__ or resolve_config
     dry_run: bool = False
@@ -70,7 +69,6 @@ def load_config(path: str | None) -> CleanerConfig:
         datasets=cfg.get("datasets"),
         exclude_datasets=cfg.get("exclude_datasets"),
         all_datasets=bool(cfg.get("all_datasets", False)),
-        location=cfg.get("location"),
         days=int(cfg.get("days", default_days)) if cfg.get("days") is not None else default_days,
         rename_suffix=str(cfg.get("rename_suffix", "")),
         dry_run=bool(cfg.get("dry_run", False)),
@@ -151,8 +149,5 @@ def resolve_config(
 
     cli_exclude = _parse_datasets_csv(cli_exclude_datasets_csv)
     merged.exclude_datasets = cli_exclude if cli_exclude is not None else base.exclude_datasets
-
-    # Location remains a file-only option for now (multi-dataset mode auto-detects per dataset)
-    merged.location = base.location
 
     return merged

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from bigquery_cleaner.config import CleanerConfig, _parse_datasets_csv, load_config, resolve_config
+from bigquery_cleaner.utils import get_execution_context
 
 
 def test_cleaner_config_uses_consistent_default_days() -> None:
@@ -88,3 +91,9 @@ def test_resolve_config_prefers_cli_values_over_file_defaults(tmp_path: Path) ->
     assert cfg.rename_suffix == "_cli"
     assert cfg.dry_run is True
     assert cfg.log_level == "DEBUG"
+
+
+def test_get_execution_context_requires_explicit_project() -> None:
+    """Reject execution context creation when project is missing."""
+    with pytest.raises(ValueError, match="Project must be provided explicitly"):
+        get_execution_context(CleanerConfig(project=None, datasets=["alpha"]))

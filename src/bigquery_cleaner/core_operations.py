@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 
 from google.cloud import bigquery
 
 from .bq_client import (
+    MAX_RENAME_CONCURRENT_JOBS,
+    RENAME_BATCH_SIZE,
     TableMetadata,
+    chunk_statements,
     delete_dataset,
-    delete_tables,
+    execute_statement_batches_concurrently,
     get_all_tables_for_location,
     get_old_modified_tables_for_location,
-    rename_tables,
     table_exists,
 )
 from .config import CleanerConfig
@@ -129,11 +132,14 @@ def get_old_tables(
 
 def rename_unused_tables(
     cfg: CleanerConfig,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, list[tuple[str, str]]]:
     """Rename tables that are both old and unqueried.
 
     Args:
         cfg: The cleaner configuration.
+        progress_callback: Optional callback receiving ``(completed_tables, total_tables)``
+            after each finished batch.
 
     Returns:
         Mapping: ``project.dataset`` -> [(``old_table_id``, ``new_table_id``) ...]
@@ -183,19 +189,31 @@ def rename_unused_tables(
             renamed[ds_key].append((table_id, new_table_id))
 
     if not cfg.dry_run:
+        batch_work_items: list[tuple[str, list[str]]] = []
         for location, statements in statements_by_loc.items():
-            rename_tables(client, statements, location)
+            for statements_batch in chunk_statements(statements, RENAME_BATCH_SIZE):
+                batch_work_items.append((location, statements_batch))
+        execute_statement_batches_concurrently(
+            client,
+            batch_work_items,
+            max_concurrent_jobs=MAX_RENAME_CONCURRENT_JOBS,
+            operation_label="Rename",
+            progress_callback=progress_callback,
+        )
 
     return renamed
 
 
 def revert_renamed_tables(
     cfg: CleanerConfig,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, list[tuple[str, str]]]:
     """Revert renamed tables by removing the specified suffix.
 
     Args:
         cfg: The cleaner configuration.
+        progress_callback: Optional callback receiving ``(completed_tables, total_tables)``
+            after each finished batch.
 
     Returns:
         Mapping: ``project.dataset`` -> [(``current_table_id``, ``reverted_table_id``) ...]
@@ -241,19 +259,31 @@ def revert_renamed_tables(
                     reverted[ds_key].append((table_id, orig_table_id))
 
     if not cfg.dry_run:
+        batch_work_items: list[tuple[str, list[str]]] = []
         for location, statements in statements_by_loc.items():
-            rename_tables(client, statements, location)
+            for statements_batch in chunk_statements(statements, RENAME_BATCH_SIZE):
+                batch_work_items.append((location, statements_batch))
+        execute_statement_batches_concurrently(
+            client,
+            batch_work_items,
+            max_concurrent_jobs=MAX_RENAME_CONCURRENT_JOBS,
+            operation_label="Revert",
+            progress_callback=progress_callback,
+        )
 
     return reverted
 
 
 def delete_suffixed_tables(
     cfg: CleanerConfig,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, list[str]]:
     """Delete tables that have the specified suffix.
 
     Args:
         cfg: The cleaner configuration.
+        progress_callback: Optional callback receiving ``(completed_tables, total_tables)``
+            after each finished batch.
 
     Returns:
         Mapping: ``project.dataset`` -> [``deleted_table_id`` ...]
@@ -289,8 +319,17 @@ def delete_suffixed_tables(
                     deleted[ds_key].append(table_id)
 
     if not cfg.dry_run:
+        batch_work_items: list[tuple[str, list[str]]] = []
         for location, statements in statements_by_loc.items():
-            delete_tables(client, statements, location)
+            for statements_batch in chunk_statements(statements, RENAME_BATCH_SIZE):
+                batch_work_items.append((location, statements_batch))
+        execute_statement_batches_concurrently(
+            client,
+            batch_work_items,
+            max_concurrent_jobs=MAX_RENAME_CONCURRENT_JOBS,
+            operation_label="Delete",
+            progress_callback=progress_callback,
+        )
 
     return deleted
 

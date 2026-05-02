@@ -164,9 +164,6 @@ dry_run = false
 # Logging level (DEBUG, INFO, WARNING, ERROR)
 log_level = "INFO"
 
-# BigQuery Location (e.g. "US", "EU"). 
-# Note: Multi-dataset mode usually auto-detects this.
-location = "US"
 ```
 
 Then run with:

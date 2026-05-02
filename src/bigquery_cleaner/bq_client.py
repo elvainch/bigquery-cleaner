@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -16,6 +17,9 @@ from .queries.sql import (
     list_old_tables_across_datasets_sql,
     recent_references_across_datasets_sql,
 )
+
+RENAME_BATCH_SIZE = 20
+MAX_RENAME_CONCURRENT_JOBS = 10
 
 
 @dataclass
@@ -41,31 +45,33 @@ def get_client(project_id: str | None = None) -> bigquery.Client:
         Example: ``bigquery.Client(project="demo-project")``
 
     """
-    return bigquery.Client(project=project_id) if project_id else bigquery.Client()
+    if not project_id:
+        raise ValueError("Project must be provided explicitly via --project or config.")
+    return bigquery.Client(project=project_id)
 
 
-def _split_dataset_ref(dataset: str, project_id: str | None) -> tuple[str, str]:
-    """Resolve a dataset name into (project, dataset) for the configured project.
+def validate_dataset_name(dataset: str) -> str:
+    """Validate that a dataset input is an unqualified dataset name.
 
     Args:
         dataset: Dataset ID string (dataset name only, without project qualification).
-        project_id: Project ID to pair with the dataset name.
 
     Returns:
-        A tuple of (project_id, dataset_id).
-        Example: ``("demo-project", "analytics")``
+        The validated dataset name.
+        Example: ``"analytics"``
 
     Raises:
-        ValueError: If the dataset is project-qualified or no project_id is provided.
+        ValueError: If the dataset is project-qualified or empty after trimming.
 
     """
+    dataset_name = dataset.strip()
+    if not dataset_name:
+        raise ValueError("Dataset name cannot be empty.")
     if "." in dataset:
         raise ValueError(
             "Dataset must be an unqualified dataset name. Set the project separately via --project or config."
         )
-    if not project_id:
-        raise ValueError("Project must be provided via --project or config when datasets are specified.")
-    return project_id, dataset
+    return dataset_name
 
 
 def list_datasets(project_id: str | None) -> list[str]:
@@ -79,6 +85,8 @@ def list_datasets(project_id: str | None) -> list[str]:
         Example: ``["analytics", "staging", "archive"]``
 
     """
+    if not project_id:
+        raise ValueError("Project must be provided explicitly via --project or config.")
     client = get_client(project_id)
     # Fetch and return all dataset IDs from the project.
     return [dataset.dataset_id for dataset in client.list_datasets()]  # type: ignore[attr-defined]
@@ -109,8 +117,8 @@ def normalize_datasets(
     project_dataset_pairs: list[tuple[str, str]] = []
     if datasets and len(datasets) > 0:
         for dataset in datasets:
-            project_id, dataset_id = _split_dataset_ref(dataset, default_project)
-            project_dataset_pairs.append((project_id, dataset_id))
+            dataset_id = validate_dataset_name(dataset)
+            project_dataset_pairs.append((default_project, dataset_id))
     else:
         # Generate a list of (project, dataset) tuples for all datasets in the project.
         project_dataset_pairs = [
@@ -120,7 +128,7 @@ def normalize_datasets(
     if exclude_datasets:
         # Normalize exclude list for comparison
         excluded = {
-            _split_dataset_ref(excluded_ds, default_project) for excluded_ds in exclude_datasets
+            (default_project, validate_dataset_name(excluded_ds)) for excluded_ds in exclude_datasets
         }
         # Filter out the datasets that are marked for exclusion.
         project_dataset_pairs = [
@@ -313,43 +321,88 @@ def get_old_modified_tables_for_location(
     return out
 
 
-def rename_tables(
+def chunk_statements(statements: list[str], batch_size: int) -> list[list[str]]:
+    """Split statements into fixed-size batches.
+
+    Args:
+        statements: SQL statements to batch.
+        batch_size: Maximum number of statements per batch.
+
+    Returns:
+        A list of statement batches.
+        Example: ``[["ALTER TABLE ...", "ALTER TABLE ..."], ["ALTER TABLE ..."]]``
+
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than zero.")
+    return [statements[index: index + batch_size] for index in range(0, len(statements), batch_size)]
+
+
+def execute_statement_batches_concurrently(
     client: bigquery.Client,
-    statements: list[str],
-    location: str,
+    batch_work_items: list[tuple[str, list[str]]],
+    max_concurrent_jobs: int,
+    operation_label: str,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> None:
-    """Execute multiple SQL statements in a single query.
+    """Execute batched DDL/DML statements concurrently with a global in-flight cap.
 
     Args:
         client: BigQuery client instance.
-        statements: List of SQL statements to execute.
-        location: Dataset location.
+        batch_work_items: A list of ``(location, statements_batch)`` work items.
+        max_concurrent_jobs: Maximum number of BigQuery jobs allowed in flight at once.
+        operation_label: Human-readable operation name used in error messages.
+        progress_callback: Optional callback receiving ``(completed_statements, total_statements)``
+            after each finished batch.
 
     """
-    if not statements:
+    if not batch_work_items:
         return
-    sql = ";\n".join(statements)
-    client.query(sql, location=location).result()
+    if max_concurrent_jobs <= 0:
+        raise ValueError("max_concurrent_jobs must be greater than zero.")
 
+    def submit_batch(location: str, statements: list[str]):
+        """Submit one batch query and wait for its result."""
+        sql = ";\n".join(statements)
+        client.query(sql, location=location).result()
 
-def delete_tables(
-    client: bigquery.Client,
-    statements: list[str],
-    location: str,
-) -> None:
-    """Execute multiple DROP TABLE statements in a single query.
+    next_index = 0
+    completed_statements = 0
+    total_statements = sum(len(statements) for _, statements in batch_work_items)
+    first_error: Exception | None = None
+    in_flight: dict[Future[None], tuple[str, list[str]]] = {}
 
-    Args:
-        client: BigQuery client instance.
-        statements: List of SQL statements to execute.
-        location: Dataset location.
+    if progress_callback is not None:
+        progress_callback(0, total_statements)
 
-    """
-    if not statements:
-        return
-    sql = ";\n".join(statements)
-    client.query(sql, location=location).result()
+    with ThreadPoolExecutor(max_workers=max_concurrent_jobs) as executor:
+        while next_index < len(batch_work_items) or in_flight:
+            while first_error is None and next_index < len(batch_work_items) and len(in_flight) < max_concurrent_jobs:
+                location, statements = batch_work_items[next_index]
+                future = executor.submit(submit_batch, location, statements)
+                in_flight[future] = (location, statements)
+                next_index += 1
 
+            if not in_flight:
+                break
+
+            done, _ = wait(in_flight.keys(), return_when=FIRST_COMPLETED)
+            for future in done:
+                location, statements = in_flight.pop(future)
+                try:
+                    future.result()
+                    completed_statements += len(statements)
+                    if progress_callback is not None:
+                        progress_callback(completed_statements, total_statements)
+                except Exception as err:
+                    if first_error is None:
+                        first_error = RuntimeError(
+                            f"{operation_label} batch failed in location '{location}' with {len(statements)} statements."
+                        )
+                        first_error.__cause__ = err
+
+        if first_error is not None:
+            raise first_error
 
 def delete_dataset(
     client: bigquery.Client, project_id: str, dataset_id: str, not_found_ok: bool = True
