@@ -149,7 +149,7 @@ exclude_datasets = ["logs_dataset", "temp_staging"]
 # The main project is always included automatically.
 jobs_projects = ["analytics-project", "bi-project"]
 
-# If true, scans all datasets in the project (overrides 'datasets' list)
+# If true, scans all datasets in the project (if 'datasets' is not provided)
 all_datasets = true
 
 # Lookback window in days for identifying unused tables (default: 30)

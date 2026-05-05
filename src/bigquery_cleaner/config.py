@@ -110,10 +110,10 @@ def resolve_config(
     """Merge TOML config with CLI flags and return the effective configuration.
 
     Precedence: CLI flags override TOML values. Datasets can be provided as a comma-separated list
-    via CLI or an array in TOML. If both `datasets` and `all_datasets` are set, the current
-    implementation still uses the explicit dataset list during downstream dataset selection.
-    The `all_datasets` flag remains set on the resolved config, but it does not override a
-    non-empty `datasets` value later in the execution flow.
+    via CLI or an array in TOML. If `all_datasets` is true and `datasets` is provided,
+    the explicit `datasets` list takes precedence during downstream selection.
+    The `all_datasets` flag remains set on the resolved config, but it only triggers
+    a full project scan if the `datasets` list is not provided (is None or empty).
 
     Args:
         path: Optional path to the TOML configuration file.
