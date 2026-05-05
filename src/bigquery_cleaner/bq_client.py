@@ -154,8 +154,11 @@ def group_datasets_by_location(
     """
     groups: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
     for project_id, dataset_id in project_dataset_pairs:
-        ds_obj = client.get_dataset(bigquery.DatasetReference(project_id, dataset_id))
-        groups[ds_obj.location].append((project_id, dataset_id))
+        try:
+            ds_obj = client.get_dataset(bigquery.DatasetReference(project_id, dataset_id))
+            groups[ds_obj.location].append((project_id, dataset_id))
+        except NotFound:
+            pass
     return groups
 
 
