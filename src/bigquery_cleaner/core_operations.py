@@ -16,7 +16,6 @@ from .bq_client import (
     execute_statement_batches_concurrently,
     get_all_tables_for_location,
     get_old_modified_tables_for_location,
-    table_exists,
 )
 from .config import CleanerConfig
 from .utils import (
@@ -157,6 +156,11 @@ def rename_unused_tables(
 
     # Create a reverse lookup for dataset location
     ds_to_loc = get_ds_to_loc_map(loc_groups)
+    existing_tables_by_location: dict[str, dict[str, dict[str, TableMetadata]]] = {}
+    for location, project_dataset_pairs in loc_groups.items():
+        existing_tables_by_location[location] = dict(
+            get_all_tables_for_location(client, location, project_dataset_pairs)
+        )
 
     renamed: dict[str, list[tuple[str, str]]] = {}
     statements_by_loc: defaultdict[str, list[str]] = defaultdict(list)
@@ -178,7 +182,8 @@ def rename_unused_tables(
             new_table_id = f"{table_id}{cfg.rename_suffix}"
 
             # Check if target table already exists
-            if table_exists(client, project_id_split, dataset_id_split, new_table_id):
+            existing_tables = existing_tables_by_location.get(location, {}).get(dataset_id_split, {})
+            if new_table_id in existing_tables:
                 # We record it but skip the actual call
                 continue
 
@@ -245,7 +250,7 @@ def revert_renamed_tables(
                         continue
 
                     # Check if original table name already exists
-                    if table_exists(client, project_id, dataset_id, orig_table_id):
+                    if orig_table_id in tables_dict:
                         # Skip if we would overwrite an existing table
                         continue
 

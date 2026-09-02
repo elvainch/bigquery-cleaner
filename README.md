@@ -29,6 +29,7 @@ bigquery-cleaner list-unused-tables --project your-gcp-project --all-datasets --
 ## ✨ Features
 
 - 🔍 **Unused Table Detection**: Scans `INFORMATION_SCHEMA.JOBS` to find tables that aren't being used.
+- 🌐 **Cross-Project Jobs History**: Optionally scans `INFORMATION_SCHEMA.JOBS` in extra projects with `jobs_projects` or `--jobs-projects`.
 - 📊 **Storage Insight**: Displays table sizes in GB and provides per-dataset and grand total summaries.
 - 📂 **Multi-Dataset Support**: Target specific datasets, exclude others, or scan your entire project.
 - 🏷️ **Safe Renaming**: Dry-run mode allows you to see what *would* happen before making changes.
@@ -36,7 +37,7 @@ bigquery-cleaner list-unused-tables --project your-gcp-project --all-datasets --
 - 🗑️ **Permanent Cleanup**: Use `delete-tables` to remove suffixed tables once you've confirmed they are no longer needed.
 - 🧹 **Dataset Cleanup**: Remove empty datasets that no longer contain any tables or views using `delete-empty-datasets`.
 - ⚙️ **Configurable**: Use a `cleaner.toml` file to save your project defaults and lookback windows.
-- ⚡ **Built with Speed**: Powered by `uv`, `Typer`, and `Rich` for a beautiful, fast terminal experience.
+- ⚡ **Built with Speed**: Powered by `uv`, `Typer`, and `Rich` for a fast terminal experience.
 
 ---
 
@@ -80,10 +81,10 @@ uv tool install .
 
 ### Help Command
 > Every command and sub-command supports the `--help` flag for detailed information on available options.
-> 
->Example: `bigquery-cleaner list-unused-tables --help`
-> 
-> Run bigquery-cleaner --help to see all available commands.
+>
+> Example: `bigquery-cleaner list-unused-tables --help`
+>
+> Run `bigquery-cleaner --help` to see all available commands.
 
 ### Connectivity Check
 Ensure your credentials and project access are working:
@@ -105,27 +106,30 @@ bigquery-cleaner tables --datasets dataset1,dataset2 --project YOUR_PROJECT
 The core functionality to find old, unreferenced tables:
 ```bash
 # List unused tables across all datasets
-bigquery-cleaner list-unused-tables --all-datasets --days 90
+bigquery-cleaner list-unused-tables --project YOUR_PROJECT --all-datasets --days 90
 ```
 
 ### Cleanup Operations
 Safely rename unused tables with a suffix:
 ```bash
 # Dry run first!
-bigquery-cleaner rename-old-tables --all-datasets --days 90 --dry-run
+bigquery-cleaner rename-old-tables --project YOUR_PROJECT --all-datasets --days 90 --dry-run
 
 # Perform the rename
-bigquery-cleaner rename-old-tables --all-datasets --days 90
+bigquery-cleaner rename-old-tables --project YOUR_PROJECT --all-datasets --days 90
+
+# Revert a previous rename
+bigquery-cleaner revert-renamed-tables --project YOUR_PROJECT --all-datasets --suffix "_renamed_20260902"
 
 # Delete renamed tables after verification
 # Dry run first!
-bigquery-cleaner delete-tables --all-datasets --suffix "_renamed_20241225" --dry-run
+bigquery-cleaner delete-tables --project YOUR_PROJECT --all-datasets --suffix "_renamed_20260902" --dry-run
 
 # Perform the deletion
-bigquery-cleaner delete-tables --all-datasets --suffix "_renamed_20241225"
+bigquery-cleaner delete-tables --project YOUR_PROJECT --all-datasets --suffix "_renamed_20260902"
 
 # Remove empty datasets
-bigquery-cleaner delete-empty-datasets --all-datasets
+bigquery-cleaner delete-empty-datasets --project YOUR_PROJECT --all-datasets
 ```
 
 ---
@@ -136,10 +140,10 @@ Tired of typing the same flags? Create a `cleaner.toml` file in your project roo
 
 ```toml
 [bigquery_cleaner]
-# GCP Project ID (defaults to ADC project if omitted)
+# GCP Project ID (required; the CLI does not fall back to the ADC default project)
 project = "your-gcp-project"
 
-# List of datasets to scan (dataset names only)
+# List of datasets to scan (dataset names only; do not use project.dataset)
 datasets = ["dataset1", "dataset2"]
 
 # List of datasets to ignore
@@ -149,7 +153,7 @@ exclude_datasets = ["logs_dataset", "temp_staging"]
 # The main project is always included automatically.
 jobs_projects = ["analytics-project", "bi-project"]
 
-# If true, scans all datasets in the project (if 'datasets' is not provided)
+# If true, scans all datasets in the project (used only when 'datasets' is omitted or empty)
 all_datasets = true
 
 # Lookback window in days for identifying unused tables (default: 30)
@@ -158,7 +162,7 @@ days = 60
 # Suffix used for renaming and identifying tables for deletion (default: _renamed_YYYYMMDD)
 rename_suffix = "_old_backup"
 
-# Default behavior for commands (true = dry run by default)
+# Default behavior for mutation commands (true = dry run by default)
 dry_run = false
 
 # Logging level (DEBUG, INFO, WARNING, ERROR)
@@ -175,9 +179,13 @@ bigquery-cleaner list-unused-tables --config cleaner.toml
 
 ## 📝 Notes
 
-- **Detection Logic**: The `list-unused-tables` command identifies tables created more than `N` days ago that do not appear in `INFORMATION_SCHEMA.JOBS.referenced_tables` within that same window.
+- **Explicit Project Required**: Pass `--project` or set `project` in `cleaner.toml`. ADC authentication is used, but ADC default-project fallback is disabled.
+- **Dataset Names**: `datasets` and `exclude_datasets` must be unqualified dataset names such as `analytics`, not `my-project.analytics`.
+- **Detection Logic**: The `list-unused-tables` command identifies tables whose `storage_last_modified_time` is older than `N` days and that do not appear in `INFORMATION_SCHEMA.JOBS.referenced_tables` within that same window.
 - **Cross-Project Usage Checks**: Set `jobs_projects` or pass `--jobs-projects` to also scan query history from other projects that may read the same tables.
-- **Rich Output**: All results are displayed in beautiful, sortable tables thanks to the `Rich` library. Includes total table counts and storage size summaries.
+- **Config Precedence**: CLI flags override `cleaner.toml`. If both `all_datasets` and `datasets` are set, the explicit `datasets` list is used.
+- **Long-Running Commands**: `list-unused-tables`, `rename-old-tables`, `revert-renamed-tables`, and `delete-tables` print a repeated analysis status message while building the work plan. Mutation commands then switch to a live progress bar during execution.
+- **Rich Output**: All results are displayed in terminal tables thanks to `Rich`, including total table counts and storage size summaries.
 - **Linting & Quality**: The project uses **Ruff** for fast linting and formatting.
 
 ---

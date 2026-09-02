@@ -2,6 +2,7 @@
 
 import logging
 from contextlib import contextmanager
+from threading import Event, Thread
 from typing import Annotated
 
 import typer
@@ -34,6 +35,8 @@ from .utils import get_execution_context
 
 app = typer.Typer(help="BigQuery Cleaner CLI", add_completion=False, no_args_is_help=True)
 console = Console()
+ANALYSIS_STATUS_MESSAGE = "Working on it... analyzing datasets and building the work plan."
+ANALYSIS_STATUS_INTERVAL_SECONDS = 15
 
 
 @app.callback()
@@ -183,6 +186,27 @@ def _mutation_progress(operation_label: str):
         yield update
     finally:
         progress.stop()
+
+
+@contextmanager
+def _analysis_status(message: str):
+    """Print a repeated status message while a command is still analyzing work."""
+    stop_event = Event()
+
+    def emit_status() -> None:
+        """Emit the analysis status immediately and then on a fixed interval."""
+        while not stop_event.is_set():
+            console.print(f"[cyan]{message}[/cyan]")
+            if stop_event.wait(ANALYSIS_STATUS_INTERVAL_SECONDS):
+                break
+
+    thread = Thread(target=emit_status, daemon=True)
+    thread.start()
+    try:
+        yield stop_event.set
+    finally:
+        stop_event.set()
+        thread.join(timeout=0.1)
 
 
 @app.command()
@@ -363,7 +387,8 @@ def unused_tables(
     _validate_project(cfg.project)
     _validate_datasets(cfg)
 
-    results = get_old_tables(cfg)
+    with _analysis_status(ANALYSIS_STATUS_MESSAGE):
+        results = get_old_tables(cfg)
     _print_unqueried_results(results)
     raise typer.Exit(code=0)
 
@@ -417,10 +442,16 @@ def rename_old_tables_cmd(
     _validate_datasets(cfg)
 
     if cfg.dry_run:
-        results = rename_unused_tables(cfg)
+        with _analysis_status(ANALYSIS_STATUS_MESSAGE):
+            results = rename_unused_tables(cfg)
     else:
-        with _mutation_progress("Rename") as progress_callback:
-            results = rename_unused_tables(cfg, progress_callback=progress_callback)
+        with _analysis_status(ANALYSIS_STATUS_MESSAGE) as stop_status, _mutation_progress("Rename") as progress_callback:
+            def wrapped_progress_callback(completed: int, total: int) -> None:
+                """Stop the analysis heartbeat once batch execution begins."""
+                stop_status()
+                progress_callback(completed, total)
+
+            results = rename_unused_tables(cfg, progress_callback=wrapped_progress_callback)
 
     if not results:
         console.print("[yellow]No tables found to rename.[/yellow]")
@@ -484,10 +515,16 @@ def revert_renamed_tables_cmd(
     _validate_datasets(cfg)
 
     if cfg.dry_run:
-        results = revert_renamed_tables(cfg)
+        with _analysis_status(ANALYSIS_STATUS_MESSAGE):
+            results = revert_renamed_tables(cfg)
     else:
-        with _mutation_progress("Revert") as progress_callback:
-            results = revert_renamed_tables(cfg, progress_callback=progress_callback)
+        with _analysis_status(ANALYSIS_STATUS_MESSAGE) as stop_status, _mutation_progress("Revert") as progress_callback:
+            def wrapped_progress_callback(completed: int, total: int) -> None:
+                """Stop the analysis heartbeat once batch execution begins."""
+                stop_status()
+                progress_callback(completed, total)
+
+            results = revert_renamed_tables(cfg, progress_callback=wrapped_progress_callback)
 
     if not results:
         console.print("[yellow]No tables found to revert.[/yellow]")
@@ -555,10 +592,16 @@ def delete_tables_cmd(
         raise typer.Exit(code=2)
 
     if cfg.dry_run:
-        results = delete_suffixed_tables(cfg)
+        with _analysis_status(ANALYSIS_STATUS_MESSAGE):
+            results = delete_suffixed_tables(cfg)
     else:
-        with _mutation_progress("Delete") as progress_callback:
-            results = delete_suffixed_tables(cfg, progress_callback=progress_callback)
+        with _analysis_status(ANALYSIS_STATUS_MESSAGE) as stop_status, _mutation_progress("Delete") as progress_callback:
+            def wrapped_progress_callback(completed: int, total: int) -> None:
+                """Stop the analysis heartbeat once batch execution begins."""
+                stop_status()
+                progress_callback(completed, total)
+
+            results = delete_suffixed_tables(cfg, progress_callback=wrapped_progress_callback)
 
     if not results:
         console.print(f"[yellow]No tables found with suffix '{cfg.rename_suffix}' to delete.[/yellow]")

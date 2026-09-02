@@ -1,81 +1,131 @@
-# BigQuery Cleaner — Agent Guide
+# BigQuery Cleaner - Agent Guide
 
-This repository is a uv‑managed Python package exposing a Typer CLI to help identify (and later, rename/delete) unused BigQuery tables. Use this document to quickly align with project decisions and conventions before making changes.
+This repository is a `uv`-managed Python package exposing a Typer CLI for finding old and unused BigQuery tables, renaming them safely, reverting those renames, deleting suffixed tables, and removing empty datasets.
 
 ## Project Shape
+
 - Packaging: `src/` layout
 - Manager: `uv` (Python 3.10+)
-- CLI: Typer entrypoint `bigquery-cleaner`
-- GCP: `google-cloud-bigquery` client with ADC auth
-- Console script: defined in `pyproject.toml` as `bigquery-cleaner = "bigquery_cleaner.cli:app"`
+- CLI entrypoint: `bigquery-cleaner`
+- Console script: `bigquery_cleaner.cli:app`
+- BigQuery access: `google-cloud-bigquery`
 
-## Core Commands
+## Current Behavior
+
+- The CLI requires an explicit `project` from `--project` or `cleaner.toml`.
+- ADC is still used for authentication, but ADC default-project fallback is intentionally disabled.
+- Dataset inputs must be unqualified dataset names only, such as `analytics`.
+- Fully-qualified dataset inputs such as `my-project.analytics` are rejected.
+- If both `all_datasets` and `datasets` are set, the explicit `datasets` list wins.
+- `jobs_projects` expands only jobs-history scanning. Dataset ownership still comes from the main configured project.
+
+## Commands
+
+- `ping`
+  - Verifies connectivity with `SELECT 1`.
+- `datasets`
+  - Lists datasets in the explicit project.
+- `tables`
+  - Lists tables, creation time, and size for selected datasets.
 - `list-unused-tables`
-  - Purpose: list tables not referenced by queries in the past N days AND modified more than N days ago.
-  - Inputs: provided via TOML config and/or CLI flags (flags override config).
-  - No `--dataset` flag. Prefer `--datasets` (comma‑separated) or `--all-datasets`.
-  - Output: displays table ID, creation/modification dates, and size in GB. Includes per-dataset totals and a grand total (table count and size).
+  - Finds tables that were not referenced in recent jobs history and were also not modified recently.
 - `rename-old-tables`
-  - Purpose: rename tables not referenced by queries in the past N days AND modified more than N days ago.
-  - Suffix: uses `--suffix` or `rename_suffix` from config.
+  - Renames unused tables by appending a suffix.
 - `revert-renamed-tables`
-  - Purpose: revert renamed tables by removing the specified suffix.
-  - Suffix: uses `--suffix` or `rename_suffix` from config.
+  - Removes the configured suffix from renamed tables.
+- `delete-tables`
+  - Deletes tables matching the configured suffix.
+- `delete-empty-datasets`
+  - Deletes datasets with no tables or views.
 
-## Config Schema (TOML)
+## Config Schema
+
 Section: `[bigquery_cleaner]`
-- `project` (str): GCP project id
-- `datasets` (list[str], optional): dataset ids; may be fully‑qualified (`proj.ds`) or just `ds`
-- `exclude_datasets` (list[str], optional): dataset ids to skip
-- `all_datasets` (bool, optional): scan every dataset in `project`
-- `days` (int, default 30): lookback window
-- `location` (str, optional): generally auto‑detected per dataset; not required
-- `rename_suffix` (str, default "_renamed_YYYYMMDD"): suffix for `rename-old-tables`
-- `dry_run` (bool, default false): if true, do not perform actual modifications
-- `log_level` (str, default "INFO"): logging level
 
-Example: see `cleaner.example.toml`.
+- `project` (`str`)
+- `datasets` (`list[str] | None`)
+- `exclude_datasets` (`list[str] | None`)
+- `jobs_projects` (`list[str] | None`)
+- `all_datasets` (`bool`, default `false`)
+- `days` (`int`, default `30`)
+- `rename_suffix` (`str`, default `_renamed_YYYYMMDD`)
+- `dry_run` (`bool`, default `false`)
+- `log_level` (`str`, default `INFO`)
 
-## Implementation Notes
-- Detection functions live in `src/bigquery_cleaner/core_operations.py`.
-- Orchestration and utility helpers live in `src/bigquery_cleaner/utils.py`.
-- API and client-related functions live in `src/bigquery_cleaner/bq_client.py`.
-- CLI commands use `Annotated` types for parameters to avoid Ruff B008 errors (no function calls in argument defaults).
-- Core detection functions:
-  - `get_non_queried_tables(cfg: CleanerConfig) -> dict[str, list[TableMetadata]]`
-  - `get_old_tables(cfg: CleanerConfig) -> dict[str, list[TableMetadata]]`
-  - `get_old_modified_tables(cfg: CleanerConfig) -> dict[str, list[TableMetadata]]`
-- Strategy:
-  - Query `{project}.region-<location>.INFORMATION_SCHEMA.JOBS` and use `referenced_tables` to find recently referenced tables (per dataset, per location).
-  - Query `INFORMATION_SCHEMA.TABLE_STORAGE` for table size and metadata.
-  - List all tables in the dataset via the BigQuery client and subtract the referenced set.
-  - Intersection: used to find tables that are both unqueried AND haven't been modified in N days.
-  - Queries run in the dataset’s location; location is auto‑resolved from dataset metadata when not provided.
-- CLI wiring in `src/bigquery_cleaner/cli.py` respects precedence: CLI flags > TOML config.
-- Do not add repeatable flags (Click `multiple=True`); use comma‑separated `--datasets` instead.
+Notes:
 
-## Constraints & Conventions
-- Keep the `src/` layout. Align with existing style and minimal changes.
-- Use `Annotated` for all Typer options and arguments.
-- The file `bigquery_maintenance.py` is a legacy reference; do not modify it. It will be replaced as CLI matures.
-- Prefer config‑first UX; only add flags that add real value. Avoid introducing `--dataset` (single) again.
-- Windows usage: use `uv run bigquery-cleaner ...` or install via `uv tool install .` to get `bigquery-cleaner` on PATH.
-- Linting: Use Ruff for linting and formatting. Configuration is in `ruff.toml`.
-  - Run check: `uv run ruff check .`
-  - Run format: `uv run ruff format .`
+- `datasets` and `exclude_datasets` are dataset names only, not `project.dataset`.
+- `jobs_projects` adds extra projects whose `INFORMATION_SCHEMA.JOBS` history should count as table usage.
+- `all_datasets` is used only when `datasets` is omitted or empty.
 
-## Auth & Prereqs
-- ADC expected (e.g., `gcloud auth application-default login`) or `GOOGLE_APPLICATION_CREDENTIALS` set.
+## Implementation Map
 
-## Roadmap (future work)
-- Add `delete-old` command with `--dry-run`.
-- Dependency graph checks: ensure no views/materialized views/procedures reference candidate tables (e.g., `INFORMATION_SCHEMA.OBJECT_REFERENCES`).
-- Audit logs usage: consider Cloud Logging signals (dataRead/jobCompleted) for non-SQL consumers (extracts, copies, ML, BI tools).
-- Scheduled jobs: detect Scheduled Queries/Dataform/Composer/Dataflow that read tables (via jobs metadata or config sources).
-- Table-type handling: treat views/materialized views/external tables/snapshots carefully; avoid deleting sources.
-- Streaming/loads: skip tables with active streaming buffers or very recent loads.
-- Partitions: consider per-partition recency; avoid deleting tables with recent partitions.
-- Labels/tags/policies: honor governance flags (e.g., `do-not-delete`, policy tags, constraints).
-- Expiration: skip tables with upcoming expiry and leverage TTL where possible.
-- Safety workflow: dry-run report, owner approval, optional snapshot/copy backup before DROP.
-- Improve logging vs print, and structured output options (e.g., `--json`).
+- `src/bigquery_cleaner/cli.py`
+  - Typer commands, validation, Rich output, analysis heartbeat, mutation progress UI
+- `src/bigquery_cleaner/config.py`
+  - `CleanerConfig`, TOML loading, CLI-over-config resolution
+- `src/bigquery_cleaner/utils.py`
+  - execution context, dataset normalization, location grouping, jobs-project resolution
+- `src/bigquery_cleaner/bq_client.py`
+  - BigQuery client helpers, `INFORMATION_SCHEMA` queries, statement batching, concurrent mutation executor
+- `src/bigquery_cleaner/core_operations.py`
+  - unused-table detection and mutation orchestration
+
+## Detection Logic
+
+- Unused-table detection is the intersection of:
+  - tables not referenced in `INFORMATION_SCHEMA.JOBS.referenced_tables` within `days`
+  - tables whose `storage_last_modified_time` is older than `days`
+- Jobs-history usage can be scanned across the main project plus extra `jobs_projects`.
+- Table metadata is fetched through batched region-level `INFORMATION_SCHEMA.TABLE_STORAGE` queries.
+- Dataset locations are auto-resolved from dataset metadata.
+
+## Mutation Behavior
+
+- `rename-old-tables`, `revert-renamed-tables`, and `delete-tables` use batched execution.
+- Batch size is `20` statements.
+- Maximum concurrent BigQuery jobs is `10`.
+- If a batch fails, no new batches are submitted, but already-started jobs are still awaited.
+- Rename and revert avoid per-table `get_table()` bottlenecks by using prefetched table metadata for collision checks.
+
+## User Feedback
+
+- `list-unused-tables`, `rename-old-tables`, `revert-renamed-tables`, and `delete-tables` print:
+  - `Working on it... analyzing datasets and building the work plan.`
+- That message is emitted immediately and then repeated every 15 seconds during analysis.
+- Mutation commands switch to a Rich progress bar once execution begins.
+
+## Constraints and Conventions
+
+- Keep the `src/` layout.
+- Use `Annotated` for Typer options and arguments.
+- Do not add repeatable CLI flags; use comma-separated strings instead.
+- Preserve the config-first UX.
+- Do not modify `bigquery_maintenance.py`; it is legacy reference code.
+- Prefer updating tests alongside behavior changes.
+
+## Auth and Prereqs
+
+- User login: `gcloud auth login`
+- ADC setup: `gcloud auth application-default login`
+- Alternative: `GOOGLE_APPLICATION_CREDENTIALS`
+
+## Quality Commands
+
+- `uv run pytest -q`
+- `uv run ruff check .`
+
+## Known Limitations
+
+- Usage detection is still based on `INFORMATION_SCHEMA.JOBS`; non-query consumers are not fully covered yet.
+- The tool does not currently analyze downstream dependencies such as views, routines, or scheduled pipelines before rename/delete.
+
+## Roadmap
+
+- Dependency checks via `INFORMATION_SCHEMA.OBJECT_REFERENCES`
+- Audit-log and non-SQL usage signals
+- Scheduled pipeline awareness
+- Table-type and partition-aware cleanup rules
+- Governance-driven exclusions
+- Snapshot/backup workflow before destructive deletes
+- Structured output such as `--json`

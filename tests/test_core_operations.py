@@ -73,7 +73,10 @@ def test_rename_unused_tables_batches_statements_by_location(monkeypatch) -> Non
         lambda cfg: (client, {"US": [("demo", "alpha")]}),
     )
     monkeypatch.setattr("bigquery_cleaner.core_operations.get_ds_to_loc_map", lambda groups: {("demo", "alpha"): "US"})
-    monkeypatch.setattr("bigquery_cleaner.core_operations.table_exists", lambda *args: False)
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_all_tables_for_location",
+        lambda *args, **kwargs: {"alpha": {}},
+    )
     monkeypatch.setattr(
         "bigquery_cleaner.core_operations.execute_statement_batches_concurrently",
         lambda client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback=None: rename_calls.append(
@@ -110,6 +113,50 @@ def test_rename_unused_tables_batches_statements_by_location(monkeypatch) -> Non
     ]
 
 
+def test_rename_unused_tables_skips_targets_that_already_exist(monkeypatch) -> None:
+    """Skip rename statements whose target table name already exists."""
+    cfg = CleanerConfig(project="demo", datasets=["alpha"], rename_suffix="_old", dry_run=False)
+    client = object()
+    executed: list[tuple[object, list[tuple[str, list[str]]], int, object, object]] = []
+
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_old_tables",
+        lambda cfg: {"demo.alpha": [TableMetadata(table_id="keep_me"), TableMetadata(table_id="rename_me")]},
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_execution_context",
+        lambda cfg: (client, {"US": [("demo", "alpha")]}),
+    )
+    monkeypatch.setattr("bigquery_cleaner.core_operations.get_ds_to_loc_map", lambda groups: {("demo", "alpha"): "US"})
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_all_tables_for_location",
+        lambda *args, **kwargs: {
+            "alpha": {
+                "keep_me_old": TableMetadata(table_id="keep_me_old"),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.execute_statement_batches_concurrently",
+        lambda client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback=None: executed.append(
+            (client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback)
+        ),
+    )
+
+    renamed = rename_unused_tables(cfg)
+
+    assert renamed == {"demo.alpha": [("rename_me", "rename_me_old")]}
+    assert executed == [
+        (
+            client,
+            [("US", ["ALTER TABLE `demo.alpha.rename_me` RENAME TO `rename_me_old`"])],
+            10,
+            "Rename",
+            None,
+        )
+    ]
+
+
 def test_revert_renamed_tables_skips_existing_original_names(monkeypatch) -> None:
     """Skip revert operations that would overwrite an existing table."""
     cfg = CleanerConfig(project="demo", datasets=["alpha"], rename_suffix="_old", dry_run=False)
@@ -123,14 +170,11 @@ def test_revert_renamed_tables_skips_existing_original_names(monkeypatch) -> Non
         "bigquery_cleaner.core_operations.get_all_tables_for_location",
         lambda *args, **kwargs: {
             "alpha": {
+                "keep_me": TableMetadata(table_id="keep_me"),
                 "rename_me_old": TableMetadata(table_id="rename_me_old"),
                 "keep_me_old": TableMetadata(table_id="keep_me_old"),
             }
         },
-    )
-    monkeypatch.setattr(
-        "bigquery_cleaner.core_operations.table_exists",
-        lambda client, project_id, dataset_id, table_id: table_id == "keep_me",
     )
     executed: list[tuple[object, list[tuple[str, list[str]]], int, str, object]] = []
     monkeypatch.setattr(

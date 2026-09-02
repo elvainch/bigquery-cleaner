@@ -77,6 +77,38 @@ def test_unused_tables_command_passes_jobs_projects_to_resolve_config(monkeypatc
     assert captured["cli_jobs_projects_csv"] == "audit-project,bi-project"
 
 
+def test_unused_tables_command_uses_analysis_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Show analysis status while unused-table detection is running."""
+    events: list[tuple[str, str]] = []
+
+    def fake_resolve_config(**kwargs) -> CleanerConfig:
+        """Return a standard config for the unused-tables command."""
+        del kwargs
+        return build_config()
+
+    @contextmanager
+    def fake_analysis_status(message: str):
+        """Record analysis-status lifecycle for assertions."""
+        events.append(("start", message))
+        yield lambda: events.append(("stop", message))
+        events.append(("exit", message))
+
+    def fake_get_old_tables(cfg: CleanerConfig) -> dict[str, list[object]]:
+        """Return no results after analysis completes."""
+        assert cfg.project == "demo-project"
+        return {}
+
+    monkeypatch.setattr("bigquery_cleaner.cli.resolve_config", fake_resolve_config)
+    monkeypatch.setattr("bigquery_cleaner.cli._analysis_status", fake_analysis_status)
+    monkeypatch.setattr("bigquery_cleaner.cli.get_old_tables", fake_get_old_tables)
+
+    result = runner.invoke(app, ["list-unused-tables", "--project", "demo-project", "--datasets", "alpha"])
+
+    assert result.exit_code == 0
+    assert events[0] == ("start", "Working on it... analyzing datasets and building the work plan.")
+    assert events[-1][0] == "exit"
+
+
 def test_rename_old_tables_command_passes_jobs_projects_to_resolve_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """Forward extra jobs projects on the rename command as well."""
     captured: dict[str, object] = {}
@@ -125,6 +157,18 @@ def test_rename_old_tables_command_uses_progress_callback_when_executing(monkeyp
         return build_config(dry_run=False)
 
     @contextmanager
+    def fake_analysis_status(message: str):
+        """Yield a stop hook that records when analysis ends."""
+        events.append(("analysis_start", message))
+
+        def stop() -> None:
+            """Record the transition into execution."""
+            events.append(("analysis_stop", message))
+
+        yield stop
+        events.append(("analysis_exit", message))
+
+    @contextmanager
     def fake_mutation_progress(operation_label: str):
         """Yield a recording progress callback for assertions."""
         events.append(("start", operation_label))
@@ -148,15 +192,78 @@ def test_rename_old_tables_command_uses_progress_callback_when_executing(monkeyp
         return {"demo-project.alpha": [("old_one", "old_one_old"), ("old_two", "old_two_old")]}
 
     monkeypatch.setattr("bigquery_cleaner.cli.resolve_config", fake_resolve_config)
+    monkeypatch.setattr("bigquery_cleaner.cli._analysis_status", fake_analysis_status)
     monkeypatch.setattr("bigquery_cleaner.cli._mutation_progress", fake_mutation_progress)
     monkeypatch.setattr("bigquery_cleaner.cli.rename_unused_tables", fake_rename_unused_tables)
 
     result = runner.invoke(app, ["rename-old-tables", "--project", "demo-project", "--datasets", "alpha"])
 
     assert result.exit_code == 0
+    assert ("analysis_start", "Working on it... analyzing datasets and building the work plan.") in events
+    assert ("analysis_stop", "Working on it... analyzing datasets and building the work plan.") in events
     assert ("start", "Rename") in events
     assert ("progress", "Rename", 2, 2) in events
     assert ("stop", "Rename") in events
+
+
+def test_revert_renamed_tables_command_uses_analysis_status_when_executing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Show analysis status until revert batch execution begins."""
+    events: list[tuple[str, object]] = []
+
+    def fake_resolve_config(**kwargs) -> CleanerConfig:
+        """Return a non-dry-run config for revert execution."""
+        del kwargs
+        return build_config(dry_run=False, rename_suffix="_old")
+
+    @contextmanager
+    def fake_analysis_status(message: str):
+        """Yield a stop hook that records when analysis ends."""
+        events.append(("analysis_start", message))
+
+        def stop() -> None:
+            """Record the transition into execution."""
+            events.append(("analysis_stop", message))
+
+        yield stop
+        events.append(("analysis_exit", message))
+
+    @contextmanager
+    def fake_mutation_progress(operation_label: str):
+        """Yield a progress callback for revert assertions."""
+        events.append(("progress_start", operation_label))
+
+        def callback(completed: int, total: int) -> None:
+            """Record progress updates."""
+            events.append(("progress", operation_label, completed, total))
+
+        yield callback
+        events.append(("progress_stop", operation_label))
+
+    def fake_revert_renamed_tables(
+        cfg: CleanerConfig,
+        progress_callback=None,
+    ) -> dict[str, list[tuple[str, str]]]:
+        """Simulate one revert batch after analysis."""
+        assert cfg.dry_run is False
+        assert progress_callback is not None
+        progress_callback(0, 1)
+        progress_callback(1, 1)
+        return {"demo-project.alpha": [("keep_me_old", "keep_me")]}
+
+    monkeypatch.setattr("bigquery_cleaner.cli.resolve_config", fake_resolve_config)
+    monkeypatch.setattr("bigquery_cleaner.cli._analysis_status", fake_analysis_status)
+    monkeypatch.setattr("bigquery_cleaner.cli._mutation_progress", fake_mutation_progress)
+    monkeypatch.setattr("bigquery_cleaner.cli.revert_renamed_tables", fake_revert_renamed_tables)
+
+    result = runner.invoke(
+        app,
+        ["revert-renamed-tables", "--project", "demo-project", "--datasets", "alpha", "--suffix", "_old"],
+    )
+
+    assert result.exit_code == 0
+    assert ("analysis_start", "Working on it... analyzing datasets and building the work plan.") in events
+    assert ("analysis_stop", "Working on it... analyzing datasets and building the work plan.") in events
+    assert ("progress", "Revert", 1, 1) in events
 
 
 def test_delete_tables_command_skips_progress_during_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -193,6 +300,63 @@ def test_delete_tables_command_skips_progress_during_dry_run(monkeypatch: pytest
 
     assert result.exit_code == 0
     assert progress_started is False
+
+
+def test_delete_tables_command_uses_analysis_status_when_executing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Show analysis status until delete batch execution begins."""
+    events: list[tuple[str, object]] = []
+
+    def fake_resolve_config(**kwargs) -> CleanerConfig:
+        """Return a non-dry-run config for delete execution."""
+        del kwargs
+        return build_config(dry_run=False, rename_suffix="_old")
+
+    @contextmanager
+    def fake_analysis_status(message: str):
+        """Yield a stop hook that records when analysis ends."""
+        events.append(("analysis_start", message))
+
+        def stop() -> None:
+            """Record the transition into execution."""
+            events.append(("analysis_stop", message))
+
+        yield stop
+        events.append(("analysis_exit", message))
+
+    @contextmanager
+    def fake_mutation_progress(operation_label: str):
+        """Yield a progress callback for delete assertions."""
+        events.append(("progress_start", operation_label))
+
+        def callback(completed: int, total: int) -> None:
+            """Record progress updates."""
+            events.append(("progress", operation_label, completed, total))
+
+        yield callback
+        events.append(("progress_stop", operation_label))
+
+    def fake_delete_suffixed_tables(cfg: CleanerConfig, progress_callback=None) -> dict[str, list[str]]:
+        """Simulate one delete batch after analysis."""
+        assert cfg.dry_run is False
+        assert progress_callback is not None
+        progress_callback(0, 1)
+        progress_callback(1, 1)
+        return {"demo-project.alpha": ["drop_me_old"]}
+
+    monkeypatch.setattr("bigquery_cleaner.cli.resolve_config", fake_resolve_config)
+    monkeypatch.setattr("bigquery_cleaner.cli._analysis_status", fake_analysis_status)
+    monkeypatch.setattr("bigquery_cleaner.cli._mutation_progress", fake_mutation_progress)
+    monkeypatch.setattr("bigquery_cleaner.cli.delete_suffixed_tables", fake_delete_suffixed_tables)
+
+    result = runner.invoke(
+        app,
+        ["delete-tables", "--project", "demo-project", "--datasets", "alpha", "--suffix", "_old"],
+    )
+
+    assert result.exit_code == 0
+    assert ("analysis_start", "Working on it... analyzing datasets and building the work plan.") in events
+    assert ("analysis_stop", "Working on it... analyzing datasets and building the work plan.") in events
+    assert ("progress", "Delete", 1, 1) in events
 
 
 def test_version_command_prints_package_version() -> None:

@@ -1,5 +1,17 @@
 # Release Notes
 
+## 0.1.9
+
+### Added
+
+- Added repeated analysis-status feedback for `list-unused-tables`, `rename-old-tables`, `revert-renamed-tables`, and `delete-tables` so long-running planning phases print a visible status message every 15 seconds before execution begins.
+
+### Changed
+
+- Removed the per-table `get_table()` existence-check bottleneck from `rename-old-tables` by reusing batched table metadata that was already fetched per location.
+- Removed the same per-table existence-check bottleneck from `revert-renamed-tables` by checking revert collisions against the prefetched in-memory table set.
+- Expanded CLI and core-operation tests to cover the new analysis-status feedback and the optimized rename/revert collision checks.
+
 ## 0.1.8
 
 ### Added
