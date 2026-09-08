@@ -200,8 +200,8 @@ def test_get_all_tables_for_location_returns_metadata_by_dataset() -> None:
     """Build per-dataset metadata maps from query rows."""
     created = datetime(2026, 4, 1, 12, 0)
     rows = [
-        {"dataset_id": "alpha", "table_id": "table_one", "creation_time": created, "total_bytes": 128},
-        {"dataset_id": "beta", "table_id": "table_two", "creation_time": created, "total_bytes": 256},
+        {"dataset_id": "alpha", "table_id": "table_one", "table_type": "BASE TABLE", "creation_time": created, "total_bytes": 128},
+        {"dataset_id": "beta", "table_id": "table_two", "table_type": "MATERIALIZED VIEW", "creation_time": created, "total_bytes": 256},
     ]
     client = RecordingClient(rows)
 
@@ -215,11 +215,13 @@ def test_get_all_tables_for_location_returns_metadata_by_dataset() -> None:
         table_id="table_one",
         created=created,
         size_bytes=128,
+        object_type="BASE TABLE",
     )
     assert result["beta"]["table_two"] == TableMetadata(
         table_id="table_two",
         created=created,
         size_bytes=256,
+        object_type="MATERIALIZED VIEW",
     )
 
 
@@ -230,6 +232,7 @@ def test_get_old_modified_tables_for_location_formats_fully_qualified_keys() -> 
         {
             "dataset_id": "alpha",
             "table_id": "stale_table",
+            "table_type": "BASE TABLE",
             "storage_last_modified_time": modified,
             "total_bytes": 64,
         }
@@ -244,7 +247,14 @@ def test_get_old_modified_tables_for_location_formats_fully_qualified_keys() -> 
     )
 
     assert result == {
-        "demo.alpha": [TableMetadata(table_id="stale_table", modified=modified, size_bytes=64)],
+        "demo.alpha": [
+            TableMetadata(
+                table_id="stale_table",
+                modified=modified,
+                size_bytes=64,
+                object_type="BASE TABLE",
+            )
+        ],
         "demo.beta": [],
     }
 

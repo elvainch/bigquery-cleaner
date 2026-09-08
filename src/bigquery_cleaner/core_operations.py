@@ -10,6 +10,7 @@ from google.cloud import bigquery
 from .bq_client import (
     MAX_RENAME_CONCURRENT_JOBS,
     RENAME_BATCH_SIZE,
+    RENAMEABLE_TABLE_TYPES,
     TableMetadata,
     chunk_statements,
     delete_dataset,
@@ -81,7 +82,7 @@ def get_old_modified_tables(
 def get_old_tables(
         cfg: CleanerConfig,
 ) -> dict[str, list[TableMetadata]]:
-    """List tables that are both old and unqueried within the lookback window.
+    """List renameable tables that are both old and unqueried within the lookback window.
 
     Args:
         cfg: The cleaner configuration.
@@ -90,6 +91,7 @@ def get_old_tables(
         Mapping of ``project.dataset`` -> [TableMetadata ...] for tables that:
         - were modified more than ``days`` ago
         - have not been referenced in the last ``days``
+        - are a base table or snapshot, which BigQuery supports renaming
         Example: ``{"demo-project.analytics": [TableMetadata(table_id="events", modified=datetime(...))]}``
 
     """
@@ -114,7 +116,11 @@ def get_old_tables(
         }
 
         # Unused tables are the intersection of 'unqueried' and 'old modified'
-        unused_ids = sorted(set(unq_map.keys()) & set(old_map.keys()))
+        unused_ids = sorted(
+            table_id
+            for table_id in set(unq_map.keys()) & set(old_map.keys())
+            if unq_map[table_id].object_type in RENAMEABLE_TABLE_TYPES
+        )
 
         merged_metadata = []
         for table_id in unused_ids:
@@ -146,9 +152,13 @@ def rename_unused_tables(
 
     """
     candidates_meta = get_old_tables(cfg)
-    # Extract table IDs from the metadata for each dataset.
+    # BigQuery supports ALTER TABLE RENAME only for base tables and snapshots.
     candidates = {
-        ds_key: [meta.table_id for meta in metadata_list]
+        ds_key: [
+            meta.table_id
+            for meta in metadata_list
+            if meta.object_type in RENAMEABLE_TABLE_TYPES
+        ]
         for ds_key, metadata_list in candidates_meta.items()
     }
 
@@ -243,7 +253,11 @@ def revert_renamed_tables(
                 continue
 
             for table_id in sorted(tables_dict.keys()):
+                table_metadata = tables_dict[table_id]
                 if table_id.endswith(suffix):
+                    if table_metadata.object_type not in RENAMEABLE_TABLE_TYPES:
+                        continue
+
                     orig_table_id = table_id[: -len(suffix)]
                     if not orig_table_id:
                         # Safety: don't rename if suffix IS the table name
@@ -313,12 +327,21 @@ def delete_suffixed_tables(
                 continue
 
             for table_id in sorted(tables_dict.keys()):
+                table_metadata = tables_dict[table_id]
                 if table_id.endswith(suffix):
+                    if table_metadata.object_type not in RENAMEABLE_TABLE_TYPES:
+                        continue
+
                     if ds_key not in deleted:
                         deleted[ds_key] = []
 
                     if not cfg.dry_run:
-                        sql = f"DROP TABLE `{project_id}.{dataset_id}.{table_id}`"
+                        statement_type = (
+                            "DROP SNAPSHOT TABLE"
+                            if table_metadata.object_type == "SNAPSHOT"
+                            else "DROP TABLE"
+                        )
+                        sql = f"{statement_type} `{project_id}.{dataset_id}.{table_id}`"
                         statements_by_loc[location].append(sql)
 
                     deleted[ds_key].append(table_id)

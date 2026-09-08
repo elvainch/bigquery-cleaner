@@ -4,7 +4,7 @@ import logging
 
 __all__ = ["__version__", "logger"]
 
-__version__ = "0.1.9"
+__version__ = "0.1.10"
 
 # Configure logging
 logger = logging.getLogger("bigquery_cleaner")

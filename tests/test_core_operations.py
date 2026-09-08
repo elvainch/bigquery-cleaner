@@ -35,7 +35,12 @@ def test_get_old_tables_intersects_old_and_unqueried_metadata(monkeypatch) -> No
     """Keep only tables that are both old and unqueried."""
     created = datetime(2026, 4, 1, 10, 0)
     modified = datetime(2026, 3, 1, 9, 0)
-    unqueried_meta = TableMetadata(table_id="keep_me", created=created, size_bytes=123)
+    unqueried_meta = TableMetadata(
+        table_id="keep_me",
+        created=created,
+        size_bytes=123,
+        object_type="BASE TABLE",
+    )
     old_meta = TableMetadata(table_id="keep_me", modified=modified, size_bytes=123)
     other_meta = TableMetadata(table_id="other_table", created=created)
 
@@ -56,6 +61,33 @@ def test_get_old_tables_intersects_old_and_unqueried_metadata(monkeypatch) -> No
     assert results["demo.alpha"][0].modified == modified
 
 
+def test_get_old_tables_excludes_unsupported_object_types(monkeypatch) -> None:
+    """Exclude materialized views from unused-table results and rename planning."""
+    base_table = TableMetadata(table_id="base_table", object_type="BASE TABLE")
+    materialized_view = TableMetadata(
+        table_id="materialized_view",
+        object_type="MATERIALIZED VIEW",
+    )
+
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_non_queried_tables",
+        lambda cfg: {"demo.alpha": [base_table, materialized_view]},
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_old_modified_tables",
+        lambda cfg: {
+            "demo.alpha": [
+                TableMetadata(table_id="base_table"),
+                TableMetadata(table_id="materialized_view"),
+            ]
+        },
+    )
+
+    results = get_old_tables(CleanerConfig(project="demo", datasets=["alpha"]))
+
+    assert [metadata.table_id for metadata in results["demo.alpha"]] == ["base_table"]
+
+
 def test_rename_unused_tables_batches_statements_by_location(monkeypatch) -> None:
     """Rename candidate tables and hand batches to the concurrent executor."""
     cfg = CleanerConfig(project="demo", datasets=["alpha"], rename_suffix="_old", dry_run=False)
@@ -65,7 +97,10 @@ def test_rename_unused_tables_batches_statements_by_location(monkeypatch) -> Non
     monkeypatch.setattr(
         "bigquery_cleaner.core_operations.get_old_tables",
         lambda cfg: {
-            "demo.alpha": [TableMetadata(table_id=f"table_{index}") for index in range(25)]
+            "demo.alpha": [
+                TableMetadata(table_id=f"table_{index}", object_type="BASE TABLE")
+                for index in range(25)
+            ]
         },
     )
     monkeypatch.setattr(
@@ -121,7 +156,12 @@ def test_rename_unused_tables_skips_targets_that_already_exist(monkeypatch) -> N
 
     monkeypatch.setattr(
         "bigquery_cleaner.core_operations.get_old_tables",
-        lambda cfg: {"demo.alpha": [TableMetadata(table_id="keep_me"), TableMetadata(table_id="rename_me")]},
+        lambda cfg: {
+            "demo.alpha": [
+                TableMetadata(table_id="keep_me", object_type="BASE TABLE"),
+                TableMetadata(table_id="rename_me", object_type="BASE TABLE"),
+            ]
+        },
     )
     monkeypatch.setattr(
         "bigquery_cleaner.core_operations.get_execution_context",
@@ -157,6 +197,59 @@ def test_rename_unused_tables_skips_targets_that_already_exist(monkeypatch) -> N
     ]
 
 
+def test_rename_unused_tables_skips_unsupported_object_types(monkeypatch) -> None:
+    """Exclude views and external tables from ALTER TABLE rename statements."""
+    cfg = CleanerConfig(project="demo", datasets=["alpha"], rename_suffix="_old", dry_run=False)
+    client = object()
+    executed: list[tuple[object, list[tuple[str, list[str]]], int, object, object]] = []
+
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_old_tables",
+        lambda cfg: {
+            "demo.alpha": [
+                TableMetadata(table_id="regular_table", object_type="BASE TABLE"),
+                TableMetadata(table_id="snapshot", object_type="SNAPSHOT"),
+                TableMetadata(table_id="materialized", object_type="MATERIALIZED VIEW"),
+                TableMetadata(table_id="view", object_type="VIEW"),
+                TableMetadata(table_id="external", object_type="EXTERNAL"),
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_execution_context",
+        lambda cfg: (client, {"US": [("demo", "alpha")]}),
+    )
+    monkeypatch.setattr("bigquery_cleaner.core_operations.get_ds_to_loc_map", lambda groups: {("demo", "alpha"): "US"})
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_all_tables_for_location",
+        lambda *args, **kwargs: {"alpha": {}},
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.execute_statement_batches_concurrently",
+        lambda client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback=None: executed.append(
+            (client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback)
+        ),
+    )
+
+    renamed = rename_unused_tables(cfg)
+
+    assert renamed == {
+        "demo.alpha": [
+            ("regular_table", "regular_table_old"),
+            ("snapshot", "snapshot_old"),
+        ]
+    }
+    assert executed[0][1] == [
+        (
+            "US",
+            [
+                "ALTER TABLE `demo.alpha.regular_table` RENAME TO `regular_table_old`",
+                "ALTER TABLE `demo.alpha.snapshot` RENAME TO `snapshot_old`",
+            ],
+        )
+    ]
+
+
 def test_revert_renamed_tables_skips_existing_original_names(monkeypatch) -> None:
     """Skip revert operations that would overwrite an existing table."""
     cfg = CleanerConfig(project="demo", datasets=["alpha"], rename_suffix="_old", dry_run=False)
@@ -170,9 +263,15 @@ def test_revert_renamed_tables_skips_existing_original_names(monkeypatch) -> Non
         "bigquery_cleaner.core_operations.get_all_tables_for_location",
         lambda *args, **kwargs: {
             "alpha": {
-                "keep_me": TableMetadata(table_id="keep_me"),
-                "rename_me_old": TableMetadata(table_id="rename_me_old"),
-                "keep_me_old": TableMetadata(table_id="keep_me_old"),
+                "keep_me": TableMetadata(table_id="keep_me", object_type="BASE TABLE"),
+                "rename_me_old": TableMetadata(
+                    table_id="rename_me_old",
+                    object_type="BASE TABLE",
+                ),
+                "keep_me_old": TableMetadata(
+                    table_id="keep_me_old",
+                    object_type="BASE TABLE",
+                ),
             }
         },
     )
@@ -212,8 +311,11 @@ def test_delete_suffixed_tables_collects_matching_tables(monkeypatch) -> None:
         "bigquery_cleaner.core_operations.get_all_tables_for_location",
         lambda *args, **kwargs: {
             "alpha": {
-                "keep_me": TableMetadata(table_id="keep_me"),
-                "drop_me_old": TableMetadata(table_id="drop_me_old"),
+                "keep_me": TableMetadata(table_id="keep_me", object_type="BASE TABLE"),
+                "drop_me_old": TableMetadata(
+                    table_id="drop_me_old",
+                    object_type="BASE TABLE",
+                ),
             }
         },
     )
@@ -234,6 +336,84 @@ def test_delete_suffixed_tables_collects_matching_tables(monkeypatch) -> None:
             10,
             "Delete",
             None,
+        )
+    ]
+
+
+def test_revert_renamed_tables_skips_unsupported_object_types(monkeypatch) -> None:
+    """Do not submit rename statements for suffixed views or external tables."""
+    cfg = CleanerConfig(project="demo", datasets=["alpha"], rename_suffix="_old", dry_run=False)
+    client = object()
+    executed: list[tuple[object, list[tuple[str, list[str]]], int, str, object]] = []
+
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_execution_context",
+        lambda cfg: (client, {"US": [("demo", "alpha")]}),
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_all_tables_for_location",
+        lambda *args, **kwargs: {
+            "alpha": {
+                "base_old": TableMetadata(table_id="base_old", object_type="BASE TABLE"),
+                "view_old": TableMetadata(table_id="view_old", object_type="VIEW"),
+                "external_old": TableMetadata(table_id="external_old", object_type="EXTERNAL"),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.execute_statement_batches_concurrently",
+        lambda client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback=None: executed.append(
+            (client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback)
+        ),
+    )
+
+    reverted = revert_renamed_tables(cfg)
+
+    assert reverted == {"demo.alpha": [("base_old", "base")]}
+    assert executed[0][1] == [("US", ["ALTER TABLE `demo.alpha.base_old` RENAME TO `base`"])]
+
+
+def test_delete_suffixed_tables_uses_type_specific_statements(monkeypatch) -> None:
+    """Delete only managed object types with their required DDL syntax."""
+    cfg = CleanerConfig(project="demo", datasets=["alpha"], rename_suffix="_old", dry_run=False)
+    client = object()
+    executed: list[tuple[object, list[tuple[str, list[str]]], int, str, object]] = []
+
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_execution_context",
+        lambda cfg: (client, {"US": [("demo", "alpha")]}),
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.get_all_tables_for_location",
+        lambda *args, **kwargs: {
+            "alpha": {
+                "base_old": TableMetadata(table_id="base_old", object_type="BASE TABLE"),
+                "snapshot_old": TableMetadata(table_id="snapshot_old", object_type="SNAPSHOT"),
+                "materialized_old": TableMetadata(
+                    table_id="materialized_old",
+                    object_type="MATERIALIZED VIEW",
+                ),
+                "view_old": TableMetadata(table_id="view_old", object_type="VIEW"),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "bigquery_cleaner.core_operations.execute_statement_batches_concurrently",
+        lambda client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback=None: executed.append(
+            (client_arg, work_items, max_concurrent_jobs, operation_label, progress_callback)
+        ),
+    )
+
+    deleted = delete_suffixed_tables(cfg)
+
+    assert deleted == {"demo.alpha": ["base_old", "snapshot_old"]}
+    assert executed[0][1] == [
+        (
+            "US",
+            [
+                "DROP TABLE `demo.alpha.base_old`",
+                "DROP SNAPSHOT TABLE `demo.alpha.snapshot_old`",
+            ],
         )
     ]
 

@@ -20,6 +20,7 @@ from .queries.sql import (
 
 RENAME_BATCH_SIZE = 20
 MAX_RENAME_CONCURRENT_JOBS = 10
+RENAMEABLE_TABLE_TYPES = frozenset({"BASE TABLE", "SNAPSHOT"})
 
 
 @dataclass
@@ -30,6 +31,7 @@ class TableMetadata:
     created: datetime | None = None
     modified: datetime | None = None
     size_bytes: int | None = None
+    object_type: str | None = None
 
 
 def get_client(project_id: str | None = None) -> bigquery.Client:
@@ -253,6 +255,7 @@ def get_all_tables_for_location(
                 table_id=table_id,
                 created=row.get("creation_time"),
                 size_bytes=row.get("total_bytes"),
+                object_type=row.get("table_type"),
             )
     except Exception as err:
         logger.warning("Batched table list query failed for location %s: %s. Falling back to per-dataset API calls.", location, err)
@@ -303,6 +306,7 @@ def get_old_modified_tables_for_location(
                 table_id=table_id,
                 modified=row.get("storage_last_modified_time"),
                 size_bytes=row.get("total_bytes"),
+                object_type=row.get("table_type"),
             )
     except Exception as err:
         logger.warning(

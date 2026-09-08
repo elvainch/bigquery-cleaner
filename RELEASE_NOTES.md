@@ -1,5 +1,14 @@
 # Release Notes
 
+## Unreleased
+
+### Changed
+
+- Added BigQuery object-type awareness to region-level metadata scans through `INFORMATION_SCHEMA.TABLES`.
+- Restricted `list-unused-tables`, `rename-old-tables`, and `revert-renamed-tables` to base tables and snapshots, preventing unsupported views, materialized views, and external tables from entering rename workflows.
+- Updated `delete-tables` to delete only base tables and snapshots, using `DROP TABLE` for base tables and `DROP SNAPSHOT TABLE` for snapshots.
+- Added test coverage for object-type metadata, unsupported-object filtering, and snapshot deletion syntax.
+
 ## 0.1.9
 
 ### Added

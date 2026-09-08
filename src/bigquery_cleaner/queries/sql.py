@@ -32,14 +32,17 @@ def list_all_tables_across_datasets_sql(project: str, region_dataset: str) -> st
     """
     return f"""
         SELECT
-            table_schema AS dataset_id,
-            table_name AS table_id,
-            creation_time,
-            total_rows,
-            total_logical_bytes AS total_bytes
-        FROM `{project}`.`{region_dataset}`.INFORMATION_SCHEMA.TABLE_STORAGE
-        WHERE table_schema IN UNNEST(@dataset_ids)
-          AND deleted = false
+            storage.table_schema AS dataset_id,
+            storage.table_name AS table_id,
+            tables.table_type,
+            storage.creation_time,
+            storage.total_rows,
+            storage.total_logical_bytes AS total_bytes
+        FROM `{project}`.`{region_dataset}`.INFORMATION_SCHEMA.TABLE_STORAGE AS storage
+        INNER JOIN `{project}`.`{region_dataset}`.INFORMATION_SCHEMA.TABLES AS tables
+            USING (table_catalog, table_schema, table_name)
+        WHERE storage.table_schema IN UNNEST(@dataset_ids)
+          AND storage.deleted = false
     """
 
 
@@ -54,13 +57,16 @@ def list_old_tables_across_datasets_sql(project: str, region_dataset: str) -> st
     """
     return f"""
         SELECT
-            table_schema AS dataset_id,
-            table_name AS table_id,
-            storage_last_modified_time,
-            total_rows,
-            total_logical_bytes AS total_bytes
-        FROM `{project}`.`{region_dataset}`.INFORMATION_SCHEMA.TABLE_STORAGE
-        WHERE table_schema IN UNNEST(@dataset_ids)
-          AND storage_last_modified_time < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
-          AND deleted = false
+            storage.table_schema AS dataset_id,
+            storage.table_name AS table_id,
+            tables.table_type,
+            storage.storage_last_modified_time,
+            storage.total_rows,
+            storage.total_logical_bytes AS total_bytes
+        FROM `{project}`.`{region_dataset}`.INFORMATION_SCHEMA.TABLE_STORAGE AS storage
+        INNER JOIN `{project}`.`{region_dataset}`.INFORMATION_SCHEMA.TABLES AS tables
+            USING (table_catalog, table_schema, table_name)
+        WHERE storage.table_schema IN UNNEST(@dataset_ids)
+          AND storage.storage_last_modified_time < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+          AND storage.deleted = false
     """
